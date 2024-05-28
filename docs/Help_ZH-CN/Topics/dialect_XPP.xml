@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="../helpproject.xsl" ?>
-<topic template="Default" modified="2023-05-09T23:23:03.444+02:00" lasteditedby="robert" version="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../helpproject.xsd">
+<topic template="Default" modified="2024-05-28T17:23:42.575+08:00" lasteditedby="Design" version="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../helpproject.xsd">
   <title>Xbase++</title>
   <keywords>
     <keyword>&amp;&amp;</keyword>
@@ -13,9 +13,9 @@
     <header>
       <para styleclass="Heading1">Xbase++</para>
     </header>
-    <para styleclass="Normal">This dialect shares the features of &quot;<link displaytype="text" defaultstyle="true" type="topiclink" href="dialect_All-Non-Core-dialects">All Non Core Dialects</link>&quot;</para>
-    <para styleclass="Normal">The compiler and runtime have the following &quot;special&quot; behavior when compiling for the &quot;Xbase++&quot; dialect.</para>
-    <para styleclass="Heading2">Compiler</para>
+    <para styleclass="Normal" style="margin-top:14px; line-height:1.00; tabstops:720px left,1440px left,2160px left,2880px left,3600px left ;"><text style="font-family:&apos;Times New Roman&apos;; text-decoration:none; vertical-align:baseline; color:#000000;">这种方言具有“</text><link displaytype="text" defaultstyle="true" type="topiclink" href="dialect_All-Non-Core-dialects">所有非 Core 方言</link><text style="font-family:&apos;Times New Roman&apos;; text-decoration:none; vertical-align:baseline; color:#000000;">”的特征</text></para>
+    <para styleclass="Normal" style="margin-top:14px; line-height:1.00; tabstops:720px left,1440px left,2160px left,2880px left,3600px left ;"><text style="font-family:&apos;Times New Roman&apos;; text-decoration:none; vertical-align:baseline; color:#000000;">编译器和运行时在编译“Xbase++”方言时具有以下“特殊”行为。</text></para>
+    <para styleclass="Heading2">编译器</para>
     <list id="0" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
       <li styleclass="Normal">Allows 4 letter abbreviations of those keywords where this is also supported in Xbase++</li>
     </list>
@@ -33,7 +33,7 @@
       <li styleclass="Normal">Adds the Xbase++ specific CLASS syntax to define classes</li>
       <li styleclass="Normal">The entry point to the code is the main() function or main() procedure.</li>
     </list>
-    <para styleclass="Heading2">Runtime</para>
+    <para styleclass="Heading2">运行时</para>
     <list id="5" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
       <li styleclass="Normal">FieldGet() and FieldPut() will not throw an error when writing to non existing field Positions</li>
       <li styleclass="Normal">If you use the index operator on a usual which contains a string then you will be receive the 1 based substring of the value.</li>

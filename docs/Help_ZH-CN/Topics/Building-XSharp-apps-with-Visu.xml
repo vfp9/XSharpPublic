@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="../helpproject.xsl" ?>
-<topic template="Default" lasteditedby="robert" version="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../helpproject.xsd">
-  <title>Building XSharp apps with Visual Studio and/or MsBuild</title>
+<topic template="Default" modified="2024-05-28T18:05:32.220+08:00" lasteditedby="Design" version="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../helpproject.xsd">
+  <title>使用 Visual Studio 和/或 MsBuild 构建 XSharp 应用程序</title>
   <keywords>
     <keyword>.g.prg</keyword>
     <keyword>.rc</keyword>
@@ -28,10 +28,10 @@
   </keywords>
   <body>
     <header>
-      <para styleclass="Heading1">Building XSharp apps with Visual Studio and/or MsBuild</para>
+      <para styleclass="Heading1">使用 Visual Studio 和/或 MsBuild 构建 XSharp 应用程序</para>
     </header>
     <para styleclass="Normal">When you build an application with MsBuild and/or Visual Studio you work with at least 2 types of files:</para>
-    <list id="3" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
+    <list id="0" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
       <li styleclass="Normal">The solution file (with the .sln extention)</li>
       <li styleclass="Normal">One or more project files. XSharp projects have the .xsproj extension. CSharp projects have the .csproj extension, Visual Basic projects the .vbproj extension.</li>
     </list>
@@ -130,7 +130,7 @@
     <para styleclass="Normal"></para>
     <para styleclass="Normal"><text styleclass="Heading2">How does MSBuild locate referenced assemblies</text></para>
     <para styleclass="Normal">When locating the referenced assemblies needed for compiling your project it looks at the following:</para>
-    <list id="4" type="ol" listtype="decimal" formatstring="&#37;&#48;&#58;&#115;&#46;" format-charset="DEFAULT_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Consolas; font-size:11pt; color:#000000;">
+    <list id="1" type="ol" listtype="decimal" formatstring="&#37;&#48;&#58;&#115;&#46;" format-charset="DEFAULT_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Consolas; font-size:11pt; color:#000000;">
       <li styleclass="Normal">When the reference node has a &quot;hintpath&quot; then it tries to locate the file through this path. That could look like <text styleclass="Code Example" style="font-weight:normal; font-style:normal; color:#000000;">&lt;HintPath&gt;..\\SDK_Defines.dll&lt;/HintPath&gt;</text></li>
       <li styleclass="Normal">When the reference node is a &quot;normal&quot; .Net framework assembly, it looks at the folder on your file system that matches the framework version. For example when the framework version of your project is 4.6 (there will be a node <text styleclass="Code Example" style="font-weight:normal; font-style:normal; color:#000000;">&lt;TargetFrameworkVersion&gt;v4.6&lt;/TargetFrameworkVersion&gt; </text><text styleclass="Body Text">then it will look for System.DLL in the folder c:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.6</text></li>
       <li styleclass="Normal"><text styleclass="Body Text">When the reference node is not a standard .Net framework assembly and the 3rd party vendor has registered a folder in a specific location then MsBuild will use that location. X# registers a folder in the </text><text styleclass="Code Example" style="font-weight:normal; font-style:normal; color:#000000;">HKLM\Software\Microsoft\.NETFramework\v4.0.30319\AssemblyFoldersEx\XSharp</text><text styleclass="Code Example" style="font-weight:bold; font-style:normal; color:#000000;">&#32;</text><text styleclass="Body Text">location. File registered in a location like this are also shown in the &quot;Add References&quot; dialogs in Visual Studio.</text></li>
@@ -171,7 +171,7 @@
     <para styleclass="Normal">If you are creating a project that contains WPF windows or controls then an extra step is needed to produce the exe/dll. </para>
     <para styleclass="Normal">In this step MSBuild produces so called <text styleclass="Code Example" style="font-weight:normal; font-style:normal; color:#000000;">.baml </text><text styleclass="Body Text">files and calls a code generator to generate source code for each XAML file. </text></para>
     <para styleclass="Normal"><text styleclass="Body Text">For the WPF template 2 source files are produced:</text></para>
-    <list id="5" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
+    <list id="2" type="ul" listtype="bullet" formatstring="&#183;" format-charset="SYMBOL_CHARSET" levelreset="true" legalstyle="false" startfrom="1" styleclass="Normal" style="font-family:Symbol; font-size:11pt; color:#000000;">
       <li styleclass="Normal"><text styleclass="Body Text">WPFWindow1.g.prg</text></li>
       <li styleclass="Normal"><text styleclass="Body Text">App.g.prg</text></li>
     </list>
