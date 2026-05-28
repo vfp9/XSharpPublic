@@ -14,13 +14,6 @@ FUNCTION Candidate (nIndexNumber , uArea)
     // RETURN FALSE
 
 /// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/compobj/*" />
-[FoxProFunction("COMPOBJ", FoxFunctionCategory.ClassAndObject, FoxEngine.LanguageCore, FoxFunctionStatus.Stub, FoxCriticality.Medium)];
-FUNCTION CompObj (oExpression1, oExpression2)
-    THROW NotImplementedException{}
-    // RETURN FALSE
-
-/// <summary>-- todo --</summary>
 /// <include file="VFPDocs.xml" path="Runtimefunctions/cpconvert/*" />
 [FoxProFunction("CPCONVERT", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Stub, FoxCriticality.Medium)];
 FUNCTION CpConvert ( nCurrentCodePage, nNewCodePage, cExpression)
@@ -48,28 +41,6 @@ FUNCTION CREATEBINARY( ) AS STRING
 /// <include file="VFPDocs.xml" path="Runtimefunctions/createoffline/*" />
 [FoxProFunction("CREATEOFFLINE", FoxFunctionCategory.Database, FoxEngine.SQL, FoxFunctionStatus.Stub, FoxCriticality.Medium)];
 FUNCTION  CreateOffline (ViewName , cPath)
-    THROW NotImplementedException{}
-    // RETURN FALSE
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/ctobin/*" />
-[FoxProFunction("CTOBIN", FoxFunctionCategory.General, FoxEngine.LanguageCore, FoxFunctionStatus.Stub, FoxCriticality.Medium)];
-FUNCTION CToBin (cExpression , cFlags)
-    THROW NotImplementedException{}
-    // RETURN 0
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/cursorgetprop/*" />
-[FoxProFunction("CURSORGETPROP", FoxFunctionCategory.CursorAndTable, FoxEngine.WorkArea, FoxFunctionStatus.Stub, FoxCriticality.High)];
-FUNCTION CursorGetProp (cProperty , uArea)
-    THROW NotImplementedException{}
-    // RETURN NIL
-
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/cursorsetprop/*" />
-[FoxProFunction("CURSORSETPROP", FoxFunctionCategory.CursorAndTable, FoxEngine.WorkArea, FoxFunctionStatus.Stub, FoxCriticality.High)];
-FUNCTION CursorSetProp (cProperty , eExpression, uArea)
     THROW NotImplementedException{}
     // RETURN FALSE
 

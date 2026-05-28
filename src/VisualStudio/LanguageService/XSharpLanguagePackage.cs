@@ -21,6 +21,7 @@ using System.Threading;
 using XSharp.LanguageService.OptionsPages;
 using XSharpModel;
 using XSharp.Settings;
+using XSharp.Support;
 #if DEV17
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Threading;
@@ -101,6 +102,11 @@ namespace XSharp.LanguageService
          SearchPaths = @"%InstallRoot%\Common7\IDE\Extensions\XSharp\Snippets\Snippets;" +
                   @"\%MyDocs%\Code Snippets\XSharp\My Code Snippets"
          )]
+
+    [ProvideToolWindow(typeof(DocumentOutlineToolWindow),
+        Style = Microsoft.VisualStudio.Shell.VsDockStyle.Tabbed,
+        Window = "74946827-37A0-11D2-A273-00C04F8EF4FF",   // Server Explorer
+        Orientation = Microsoft.VisualStudio.Shell.ToolWindowOrientation.Right)]
 
     //Note that the name of the entry in Tools/Options/TextEditor is defined in VsPackage.Resx in item #1 as X#
     [ProvideLanguageEditorOptionPage(typeof(FormattingOptionsPage), XSharpConstants.LanguageName, null, "Formatting", pageNameResourceId: "202", keywordListResourceId: 302)]
@@ -231,7 +237,7 @@ namespace XSharp.LanguageService
         protected override async System.Threading.Tasks.Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
             instance = this;
-            //LanguageServiceEvents.Start();
+            Logger.Initialize();
             await base.InitializeAsync(cancellationToken, progress);
             _txtManager = await GetServiceAsync(typeof(SVsTextManager)) as IVsTextManager4;
             Assumes.Present(_txtManager);
@@ -248,8 +254,7 @@ namespace XSharp.LanguageService
             XSettings.Version = await VS.Shell.GetVsVersionAsync();
             this.RegisterEditorFactory(new XSharpEditorFactory(this));
             IServiceContainer serviceContainer = this;
-            StartLogging();
-            XSettings.ShellLink = new XSharpShellLink();
+
 #if DEV17
             RegisterLanguageService(typeof(XSharpLanguageService), async cToken =>
             {
@@ -300,6 +305,7 @@ namespace XSharp.LanguageService
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             XSettings.CodeDomProviderClass  = typeof(XSharp.CodeDom.XSharpCodeDomProvider);
         }
+
 
         protected override void Dispose(bool disposing)
         {
@@ -443,19 +449,6 @@ namespace XSharp.LanguageService
         }
         #endregion
 
-        public void StartLogging()
-        {
-            int FileLogging = (int)Constants.GetSetting("Log2File", XSettings.EnableFileLogging ? 1 : 0);
-            int DebugLogging = (int)Constants.GetSetting("Log2Debug", XSettings.EnableDebugLogging ? 1 : 0);
-
-            XSettings.EnableFileLogging = FileLogging != 0;
-            XSettings.EnableDebugLogging = DebugLogging != 0;
-            if (XSettings.EnableFileLogging || XSettings.EnableDebugLogging)
-                Logger.Start();
-            else
-                Logger.Stop();
-
-        }
     }
 
 }

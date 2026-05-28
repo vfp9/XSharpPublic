@@ -1,4 +1,4 @@
-//
+﻿//
 // Copyright (c) XSharp B.V.  All Rights Reserved.
 // Licensed under the Apache License, Version 2.0.
 // See License.txt in the project root for license information.
@@ -14,9 +14,7 @@ USING XSharp.RDD.Enums
 USING XSharp.RDD.Support
 USING System.Diagnostics
 
-/// <summary>
-/// The base AdsRDD class from which all Advantage RDDs for X# inherit.
-/// </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD/*" />
 [DebuggerDisplay("AdsRDD ({Alias,nq})")];
 CLASS XSharp.ADS.ADSRDD INHERIT Workarea
   #region Fields
@@ -44,7 +42,7 @@ CLASS XSharp.ADS.ADSRDD INHERIT Workarea
 
   #endregion
 
-  /// <summary>Create instande of RDD </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.ctor/*" />
 CONSTRUCTOR()
     SUPER()
     SELF:_Order         := ADSIndex{SELF}
@@ -654,8 +652,8 @@ OVERRIDE METHOD SkipRaw(lCount AS LONG) AS LOGIC
 RETURN SELF:Skip(lCount)
 
 
-    /// <inheritdoc />
 
+    /// <inheritdoc />
 INTERNAL METHOD _GetScope(hIndex AS System.IntPtr, usScopeOption AS WORD) AS OBJECT
     LOCAL aScope    AS CHAR[]
     LOCAL wBufLen   AS WORD
@@ -839,6 +837,9 @@ OVERRIDE METHOD GetValue(nFldPos AS INT) AS OBJECT
     ENDIF
     var column := SELF:_GetColumn(nFldPos)
     if column != null
+        IF SELF:_EoF .or. SELF:RecCount == 0
+            RETURN column:EmptyValue()
+        ENDIF
         RETURN column:GetValue()
     endif
     return NULL
@@ -1206,15 +1207,21 @@ OVERRIDE METHOD Info(uiOrdinal AS LONG, oNewValue AS OBJECT) AS OBJECT
 
         aDate := CHAR[]{ACE.ADS_MAX_DATEMASK+1}
         DateLen := (WORD) aDate:Length
-        SELF:_CheckError(ACE.AdsSetDateFormat("MM/DD/YYYY"))
+        SELF:_CheckError(ACE.AdsSetDateFormat("YYYY-MM-DD"))
         SELF:_CheckError(ACE.AdsGetLastTableUpdate(SELF:_Table, aDate, REF DateLen))
         SELF:_CheckError(ACE.AdsSetDateFormat(RuntimeState.DateFormat))
         local sDate as string
+        IF DateLen <= 0
+            RETURN DbDate{0,0,0}
+        ENDIF
         sDate := String{aDate, 0, DateLen}
         local month, day, year as int
-        month := Convert.ToInt32(sDate:Substring(0,2))
-        day   := Convert.ToInt32(sDate:Substring(3,2))
-        year  := Convert.ToInt32(sDate:Substring(6,4))
+        year  := Convert.ToInt32(sDate:Substring(0,4))
+        month := Convert.ToInt32(sDate:Substring(5,2))
+        day   := Convert.ToInt32(sDate:Substring(8,2))
+        if (year == 0 .or. month == 0 .or. day == 0)
+            return DbDate{0,0,0}
+        endif
         return DbDate{year, month, day}
 
     CASE DbInfo.DBI_GETLOCKARRAY
@@ -1359,49 +1366,49 @@ OVERRIDE METHOD TransRec(info AS DbTransInfo) AS LOGIC
       #endregion
 
     #region Unsupported
+
+
+
+
     /// <inheritdoc />
-
-
-
-
 INTERNAL METHOD Unsupported(strFunctionName AS STRING) AS LOGIC
     SELF:ADSERROR(ERDD.UNSUPPORTED, XSharp.Gencode.EG_UNSUPPORTED, strFunctionName)
 RETURN FALSE
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.AppendLock/*" />
 OVERRIDE METHOD AppendLock(uiMode AS DbLockMode) AS LOGIC
 RETURN SELF:Unsupported("AppendLock")
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.BlobInfo/*" />
 OVERRIDE METHOD BlobInfo(uiPos AS DWORD, uiOrdinal AS DWORD) AS OBJECT
     SELF:Unsupported("BlobInfo")
 RETURN NULL
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.ForceRel/*" />
 OVERRIDE METHOD ForceRel() AS LOGIC
 RETURN SELF:Unsupported("ForceRel")
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.GetRec/*" />
 OVERRIDE METHOD GetRec() AS BYTE[]
     SELF:Unsupported("GetRec")
 RETURN NULL
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.GetValueFile/*" />
 OVERRIDE METHOD GetValueFile(nFldPos AS INT, cFileName AS STRING) AS LOGIC
     SELF:Unsupported("GetValueFile")
 RETURN FALSE
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.HeaderLock/*" />
 OVERRIDE METHOD HeaderLock(uiMode AS DbLockMode) AS LOGIC
 RETURN SELF:Unsupported("HeaderLock")
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.PutRec/*" />
 OVERRIDE METHOD PutRec(aRec AS BYTE[])			AS LOGIC
 RETURN SELF:Unsupported("PutRec")
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.PutValueFile/*" />
 OVERRIDE METHOD PutValueFile(nFldPos AS INT, cFileName AS STRING) AS LOGIC
     SELF:Unsupported("PutValueFile")
 RETURN FALSE
 
-      /// <summary>This method is not supported by the AdsRDD class </summary>
+/// <include file="XSharp.RDD.Docs.xml" path="doc/ADSRDD.Sort/*" />
 OVERRIDE METHOD Sort(info AS DbSortInfo) AS LOGIC
 RETURN SELF:Unsupported("Sort")
 

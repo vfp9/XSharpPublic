@@ -55,6 +55,8 @@ namespace XSharp.Project
         public const int idEditProjectFile = 0x010F;
         public const int idHelpOffLineChinese = 0x0110;
         public const int idGenerateWinForm = 0x0120;
+        public const int idPublishProject = 0x0121;
+        public const int idPackProject = 0x0122;
         public const int idExporterSubMenu = 0x1030;
         public const int idExporterGroup = 0x1040;
         public const int idDebuggerSubMenu = 0x1050;
@@ -78,10 +80,8 @@ namespace XSharp.Project
         public const int idFramework4 = 0x7014;
         public const int DebugTargetMenuControllerGroup = 0x1000;
         public const int DebugTargetMenuControllerFooterGroup = 0x2000;
-        public const int bmpProject = 0x0001;
         public const int bmpXSharp = 0x0002;
         public const int bmpVO = 0x0007;
-        public const int bmpTabOrder = 0x000D;
         public const int bmpFoxPro = 0x000E;
         public const int IDM_IF_TOOLBAR_FORMAT = 0x0601;
         public const int IDG_IF_KEYBOARD = 0x0320;

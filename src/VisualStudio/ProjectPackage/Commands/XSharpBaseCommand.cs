@@ -14,8 +14,7 @@ namespace Community.VisualStudio.Toolkit
             if (project != null)
             {
                 var path = project.FullPath;
-                var ext = System.IO.Path.GetExtension(path).ToLower();
-                return ext == ".xsproj" || ext == ".xsprj";
+                return XSharpModel.XProject.IsXSharpProject(path);
             }
             return false;
         }
@@ -30,6 +29,13 @@ namespace XSharp.Project
             var project = await VS.Solutions.GetActiveProjectAsync();
             return project.IsXSharp();
         }
+        internal async static Task<bool> ProjectIsXSharpSdkProjectAsync()
+        {
+            var project = await VS.Solutions.GetActiveProjectAsync();
+            var xproject = XSharpProjectNode.FindProject(project.FullPath);
+            return xproject != null && xproject.IsSdkProject;
+        }
+
         internal static string GetXsPath(string subpath)
         {
             string REG_KEY = @"HKEY_LOCAL_MACHINE\" + XSharp.Constants.RegistryKey;

@@ -95,6 +95,11 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Page Include="..\VsThemeDictionary.xaml">
+      <Link>Controls\VsThemeDictionary.xaml</Link>
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\GlobalsControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -104,10 +109,6 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Controls\SettingsControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="Controls\VsThemeDictionary.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
@@ -137,7 +138,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Community.VisualStudio.Toolkit.17">
-      <Version>17.0.549</Version>
+      <Version>17.0.551</Version>
     </PackageReference>
     <PackageReference Include="MessagePack">
       <Version>2.5.192</Version>
@@ -163,7 +164,10 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="System.Collections.Immutable">
-      <Version>10.0.2</Version>
+      <Version>10.0.5</Version>
+    </PackageReference>
+    <PackageReference Include="System.Text.Json">
+      <Version>9.0.14</Version>
     </PackageReference>
   </ItemGroup>
   <ItemGroup>

@@ -57,9 +57,14 @@
     <Compile Include="BraceCompletion\BraceCompletion.cs" />
     <Compile Include="Commands\AbstractCommand.cs" />
     <Compile Include="Commands\CommentCommand.cs" />
+    <Compile Include="Commands\DocumentOutlineCommand.cs" />
     <Compile Include="Commands\FormattingCommand.cs" />
     <Compile Include="Commands\GotoCommand.cs" />
     <Compile Include="Commands\GotoDefinition.cs" />
+    <Compile Include="Controls\GotoDefinitionResultsWindow.xaml.cs">
+      <DependentUpon>GotoDefinitionResultsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Commands\HelpCommand.cs" />
     <Compile Include="Commands\HelpViewer.cs" />
     <Compile Include="Commands\SaveCommand.cs" />
@@ -69,7 +74,6 @@
     <Compile Include="Interop\IComWrapperFixed.cs" />
     <Compile Include="Interop\WrapperPolicy.cs" />
     <Compile Include="LanguageService\XSharpEditorFactory.cs" />
-    <Compile Include="Logger.cs" />
     <Compile Include="MatchingTokens\AbstractMatching.cs" />
     <Compile Include="MatchingTokens\IdentifierMatching.cs" />
     <Compile Include="MatchingTokens\KeywordMatching.cs" />
@@ -220,18 +224,29 @@
     <Compile Include="XMLDoc\XSharpXMLDoc.cs" />
     <Compile Include="Outlining\XSharpOutlining.cs" />
     <Compile Include="Document\XDocument.cs" />
-    <Compile Include="XSharpShellLink.cs" />
+    <Compile Include="Controls\KindExtensions.cs" />
+    <Compile Include="Controls\DocumentOutlineControl.cs">
+      <DependentUpon>DocumentOutlineControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="DocumentOutline\DocumentOutlineToolWindow.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.MSXML, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <EmbedInteropTypes>False</EmbedInteropTypes>
     </Reference>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xaml" />
     <Reference Include="System.Xml" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
     <Reference Include="XSharp.MonoCecil">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>$(VSExternalDir)XSharp.MonoCecil.dll</HintPath>
@@ -243,7 +258,12 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Community.VisualStudio.Toolkit.16">
-      <Version>16.0.549</Version>
+      <Version>16.0.551</Version>
+    </PackageReference>
+    <PackageReference Include="Community.VisualStudio.VSCT">
+      <Version>16.0.29.14</Version>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="editorconfig">
       <Version>0.15.0</Version>
@@ -256,12 +276,6 @@
     </PackageReference>
     <PackageReference Include="Microsoft.VisualStudio.TextManager.Interop.12.0">
       <Version>16.9.31023.347</Version>
-    </PackageReference>
-    <PackageReference Include="Serilog.Sinks.Debug">
-      <Version>2.0.0</Version>
-    </PackageReference>
-    <PackageReference Include="Serilog.Sinks.File">
-      <Version>5.0.0</Version>
     </PackageReference>
     <PackageReference Include="System.Runtime">
       <Version>4.3.1</Version>
@@ -304,6 +318,10 @@
       <Project>{7b7d9574-66a7-4719-aa48-c2386d7bf153}</Project>
       <Name>CodeDomProvider</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Support\Support.csproj">
+      <Project>{494eb703-143e-4440-ac3b-c8aa1aa3dd21}</Project>
+      <Name>Support</Name>
+    </ProjectReference>
     <ProjectReference Include="..\XSharpCodeModelXs\CodeModel.xsproj">
       <Project>{eed6843b-b727-4f08-aa32-ca0f48fdde3f}</Project>
       <Name>CodeModel</Name>
@@ -321,6 +339,21 @@
     <Content Include="Snippets\SnippetsIndex.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Include="..\VsThemeDictionary.xaml">
+      <Link>Controls\VsThemeDictionary.xaml</Link>
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\GotoDefinitionResultsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\DocumentOutlineControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <Content Include="Snippets\Snippets\case.snippet">
@@ -405,6 +438,20 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Snippets\Snippets\while.snippet">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Snippets\Snippets\exitproc.snippet">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Snippets\Snippets\ifelse.snippet">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Snippets\Snippets\ifelseif.snippet">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Snippets\Snippets\interface.snippet">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

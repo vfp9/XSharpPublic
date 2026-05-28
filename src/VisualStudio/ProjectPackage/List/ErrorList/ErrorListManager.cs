@@ -27,6 +27,7 @@ namespace XSharp.Project
         static ErrorListProvider _listprovider = null;
         static IErrorList _errorList = null;
         static ITableManager _manager = null;
+        static readonly object _initLock = new object();
 
 
         static ErrorListManager()
@@ -39,11 +40,16 @@ namespace XSharp.Project
         {
             if (_errorList != null)
                 return;
-            _errorList = XSharpProjectPackage.XInstance.ErrorList;
-            if (_errorList != null)
+            lock (_initLock)
             {
-                _manager = _errorList.TableControl.Manager;
-                _listprovider = new ErrorListProvider(_manager);
+                if (_errorList != null)
+                    return;
+                _errorList = XSharpProjectPackage.XInstance.ErrorList;
+                if (_errorList != null)
+                {
+                    _manager = _errorList.TableControl.Manager;
+                    _listprovider = new ErrorListProvider(_manager);
+                }
             }
         }
         internal ErrorListManager(XSharpProjectNode node) : base(node)
@@ -120,10 +126,10 @@ namespace XSharp.Project
         }
 
         internal void AddBuildError(string file, int line, int column, string errCode,
-            string message, __VSERRORCATEGORY sev)
+            string message, __VSERRORCATEGORY sev, XSharpProjectNode project  )
         {
 
-            var item = this.CreateItem(file, line, column, 1, errCode, message, sev, ErrorSource.Build, Project.Caption);
+            var item = this.CreateItem(file, line, column, 1, errCode, message, sev, ErrorSource.Build, project.Caption);
             this.AddItem(item);
         }
 
@@ -246,7 +252,8 @@ namespace XSharp.Project
         {
             if (_projects.TryGetValue(project.ProjectIDGuid, out var entry))
             {
-                _listprovider.RemoveListFactory(entry.Factory);
+                if (_listprovider != null)
+                    _listprovider.RemoveListFactory(entry.Factory);
                 return _projects.TryRemove(project.ProjectIDGuid, out _);
             }
             return false;

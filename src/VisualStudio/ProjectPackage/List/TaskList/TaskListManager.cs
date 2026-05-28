@@ -28,17 +28,23 @@ namespace XSharp.Project
         static ListProvider _listprovider = null;
         static ITaskList _taskList;
         static ITableManager _manager;
+        static readonly object _initLock = new object();
 
 
         static void GetTaskList()
         {
             if (_taskList != null)
                 return;
-            _taskList = XSharpProjectPackage.XInstance.TaskList;
-            if (_taskList != null)
+            lock (_initLock)
             {
-                _manager = _taskList.TableControl.Manager;
-                _listprovider = new TaskListProvider(_manager);
+                if (_taskList != null)
+                    return;
+                _taskList = XSharpProjectPackage.XInstance.TaskList;
+                if (_taskList != null)
+                {
+                    _manager = _taskList.TableControl.Manager;
+                    _listprovider = new TaskListProvider(_manager);
+                }
             }
         }
 
@@ -91,7 +97,8 @@ namespace XSharp.Project
         {
             if (_projects.TryGetValue(project.ProjectIDGuid, out var entry))
             {
-                _listprovider.RemoveListFactory(entry.Factory);
+                if (_listprovider != null)
+                    _listprovider.RemoveListFactory(entry.Factory);
                 return _projects.TryRemove(project.ProjectIDGuid, out _);
             }
             return false;

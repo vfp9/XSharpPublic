@@ -8,6 +8,7 @@
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.OLE.Interop;
+using OLE=Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
@@ -18,17 +19,18 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using XSharpModel;
 using XSharp.Settings;
+using XSharp.Support;
 using Community.VisualStudio.Toolkit;
 #pragma warning disable CS0649 // Field is never assigned to, for the imported fields
 #if !ASYNCCOMPLETION
 namespace XSharp.LanguageService
 {
-    internal class XSharpCompletionCommandHandler : IOleCommandTarget
+    internal class XSharpCompletionCommandHandler : OLE.IOleCommandTarget
     {
         readonly ITextView _textView;
         readonly ICompletionBroker _completionBroker;
         private readonly XDocument _doc;
-        private readonly IOleCommandTarget m_nextCommandHandler;
+        private readonly OLE.IOleCommandTarget m_nextCommandHandler;
         private readonly ITagAggregator<IClassificationTag> _tagAggregator;
         private readonly IVsTextView _textViewAdapter;
         bool completionWasSelected = false;

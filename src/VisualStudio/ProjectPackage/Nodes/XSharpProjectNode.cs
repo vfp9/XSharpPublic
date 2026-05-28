@@ -3,13 +3,14 @@
 // Licensed under the Apache License, Version 2.0.
 // See License.txt in the project root for license information.
 //
-#undef USEPROJECTVERSION
 using Community.VisualStudio.Toolkit;
 
 using EnvDTE;
 
 using Microsoft.Build.Execution;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.Imaging.Interop;
 using Microsoft.VisualStudio.Project;
 using Microsoft.VisualStudio.Project.Automation;
 using Microsoft.VisualStudio.Shell;
@@ -25,11 +26,14 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Permissions;
 using System.Windows.Forms;
+using System.Xml.Linq;
 
 using VSLangProj;
 
 using XSharp.Settings;
+using XSharp.VisualStudio.Project;
 
 using XSharpModel;
 
@@ -53,16 +57,18 @@ namespace XSharp.Project
 
         internal static XSharpProjectNode FindProject(string url)
         {
-            var file = System.IO.Path.GetFileName(url);
-            foreach (var proj in nodes)
+            lock (nodes)
             {
-                if (string.Compare(proj.FileName, url, true) == 0)
-                    return proj;
-                var pFile = System.IO.Path.GetFileName(proj.FileName);
-                if (string.Compare(pFile, url, true) == 0)
-                    return proj;
+                var file = System.IO.Path.GetFileName(url);
+                foreach (var proj in nodes)
+                {
+                    if (string.Compare(proj.FileName, url, true) == 0)
+                        return proj;
+                    var pFile = System.IO.Path.GetFileName(proj.FileName);
+                    if (string.Compare(pFile, url, true) == 0)
+                        return proj;
+                }
             }
-
             return null;
         }
 
@@ -88,7 +94,7 @@ namespace XSharp.Project
             _changedProjectFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
         internal static IDictionary<string, string> ChangedProjectFiles => _changedProjectFiles;
-        internal static XSharpProjectNode[] AllProjects => nodes.ToArray();
+        internal static XSharpProjectNode[] AllProjects { get { lock (nodes) { return nodes.ToArray(); } } }
 
         #region Constants
         internal const string ProjectTypeName = XSharpConstants.LanguageName;
@@ -263,6 +269,7 @@ namespace XSharp.Project
                 imageList = value;
             }
         }
+
         /// <summary>
         /// Gets the XSharpPackage instance for this project.
         /// </summary>
@@ -313,8 +320,6 @@ namespace XSharp.Project
 
         protected override int ShowContextMenu(int menuId, Guid menuGroup, POINTS points)
         {
-            // Save the fact that we are showing a context menu, we need that to fool the Nuget tools.
-            // See OAXSharpProject.cs
             InContextMenu = true;
             var result = base.ShowContextMenu(menuId, menuGroup, points);
             InContextMenu = false;
@@ -402,6 +407,7 @@ namespace XSharp.Project
             base.OnItemAdded(parent, child);
             if (child is XSharpFileNode xfile)
             {
+                this.ProjectModel.AddFile(child.Url);
                 xfile.SetSpecialPropertiesEx();
             }
         }
@@ -426,23 +432,8 @@ namespace XSharp.Project
                         this.options = base.GetProjectOptions(configCanonicalName);
                         var xoptions = this.options as XSharpProjectOptions;
                         xoptions.ConfigCanonicalName = configCanonicalName;
-                        foreach (var cmd in _commandLineArguments)
-                        {
-                            if (cmd.StartsWith("/define:"))
-                            {
-                                xoptions.DefinedPreprocessorSymbols.Clear();
-                                var constants = cmd.Substring(8);
-
-                                foreach (string s in constants.Replace(" \t\r\n", "").Split(';'))
-                                {
-                                    options.DefinedPreprocessorSymbols.Add(s);
-                                }
-                            }
-                        }
-
                         xoptions.BuildCommandLine();
                     }
-
                 });
             }
             return this.options;
@@ -463,17 +454,6 @@ namespace XSharp.Project
                         return VSConstants.S_OK;
                 }
             }
-            //else if (cmdGroup == Microsoft.VisualStudio.Project.VsMenus.guidStandardCommandSet2K)
-            //{
-
-            //    switch ((VsCommands2K)cmd)
-            //    {
-            //        case VsCommands2K.ECMD_PUBLISHSELECTION:
-            //        case VsCommands2K.ECMD_PUBLISHSLNCTX:
-            //            result |= QueryStatusResult.SUPPORTED | QueryStatusResult.ENABLED;
-            //            return VSConstants.S_OK;
-            //    }
-            //}
             return base.QueryStatusOnNode(cmdGroup, cmd, pCmdText, ref result);
         }
         public override void PrepareBuild(ConfigCanonicalName config, bool cleanBuild)
@@ -574,7 +554,12 @@ namespace XSharp.Project
         {
             if (automationobject == null)
             {
+#if !DEV17
                 automationobject = new OAXSharpProject(this);
+#else
+                automationobject = new OAXSharpSdkProject(this);
+#endif
+
             }
             return automationobject;
         }
@@ -676,8 +661,8 @@ namespace XSharp.Project
                 typeof(XSharpGeneralPropertyPage).GUID,
                 typeof(XSharpLanguagePropertyPage).GUID,
                 typeof(XSharpDialectPropertyPage).GUID,
-                /*typeof(XSharpGlobalUsingsPropertiesPage).GUID,
-                */typeof(XSharpBuildPropertyPage).GUID,
+                typeof(XSharpGlobalUsingsPropertiesPage).GUID,
+                typeof(XSharpBuildPropertyPage).GUID,
                 typeof(XSharpBuildEventsPropertyPage).GUID,
                 typeof(XSharpDebugPropertyPage).GUID
                 };
@@ -690,14 +675,12 @@ namespace XSharp.Project
         /// <returns>List of pages GUIDs.</returns>
         protected override Guid[] GetConfigurationIndependentPropertyPages()
         {
-            Guid[] result = new Guid[]
-                {
+              return new Guid[]
+            {
                 typeof(XSharpGeneralPropertyPage).GUID,
                 typeof(XSharpLanguagePropertyPage).GUID,
-                 typeof(XSharpDialectPropertyPage).GUID,
-                 /*typeof(XSharpGlobalUsingsPropertiesPage).GUID,*/
-                };
-            return result;
+                typeof(XSharpDialectPropertyPage).GUID
+            };
         }
 
         /// <summary>
@@ -1155,7 +1138,7 @@ namespace XSharp.Project
                 this.isLoading = false;
                 foreach (var url in this.URLNodes.Keys)
                 {
-                    if (!IsXSharpProjectFile(url) && this.BuildProject != null)
+                    if (!XProject.IsXSharpProject(url) && this.BuildProject != null)
                     {
                         if (this.URLNodes[url] is XSharpFileNode node && !node.IsNonMemberItem)
                         {
@@ -1236,6 +1219,19 @@ namespace XSharp.Project
             VSProject.Events.ReferencesEvents.ReferenceAdded += ReferencesEvents_ReferenceAdded;
             VSProject.Events.ReferencesEvents.ReferenceRemoved += ReferencesEvents_ReferenceRemoved;
             VSProject.Events.ReferencesEvents.ReferenceChanged += ReferencesEvents_ReferenceChanged;
+
+            var file = this.ResponseFilePath;
+            if (File.Exists(file))
+            {
+                try
+                {
+                    System.IO.File.Delete(file);
+                }
+                catch (Exception )
+                {
+
+                }
+            }
         }
 
 
@@ -1289,7 +1285,7 @@ namespace XSharp.Project
                         break;
                     case XSharpProjectReferenceNode projref:
                         var url = projref.Url;
-                        if (IsXSharpProjectFile(url))
+                        if (XProject.IsXSharpProject(url))
                         {
                             this.ProjectModel.AddProjectReference(url);
                         }
@@ -1359,12 +1355,11 @@ namespace XSharp.Project
         public XSharpPackageReferenceContainerNode GetPackageReferenceContainerNode()
         {
             var node = FindChild(XSharpPackageReferenceContainerNode.PackageReferencesNodeVirtualName) as XSharpPackageReferenceContainerNode;
-            if (node == null )
+            if (node == null)
             {
                 var referenceContainerNode = GetReferenceContainer() as HierarchyNode;
                 node = new XSharpPackageReferenceContainerNode(this);
                 referenceContainerNode.AddChild(node);
-
             }
             return node;
         }
@@ -1442,34 +1437,48 @@ namespace XSharp.Project
 
         internal bool HasIncompleteReferences = false;
 
+#if DEV17
         internal bool FixReferences()
         {
             var found = true;
             var container = this.GetReferenceContainer() as XSharpReferenceContainerNode;
+            if (container == null)
+                return false;
             foreach (var child in container.EnumReferences())
             {
-                if (child is XSharpProjectReferenceNode)
+                if (child is XSharpSDKProjectReferenceNode sdkref)
                 {
                     var element = child.ItemNode;
+
                     var path = element.Item.EvaluatedInclude;
                     path = System.IO.Path.GetFileName(path);
                     var refnode = FindProject(path);
+                    if (refnode == null)
+                    {
+                        continue;
+                    }
                     var guid = refnode.ProjectIDGuid;
                     if (guid != Guid.Empty)
                     {
-                        element.SetMetadata("Project", guid.ToString("B").ToUpperInvariant());
+                        element.SetMetadata(ProjectFileConstants.Project, guid.ToString("B").ToUpperInvariant());
+
                     }
                     else
                     {
                         found = false;
                     }
+                    if (found)
+                    {
+                        sdkref.SaveProperties();
+                    }
                 }
+
                 HasIncompleteReferences = !found;
-                this.BuildProject.Save();
             }
+            this.SetProjectFileDirty(false);
             return found;
         }
-
+#endif
 
         private object CreateServices(Type serviceType)
         {
@@ -1503,6 +1512,15 @@ namespace XSharp.Project
         {
             var result = base.InvokeMsBuild(target, out projectInstance);
             LastBuildResult = projectInstance;
+            // Find Items from NuGet packages
+            foreach (var item in projectInstance.Items)
+            {
+                if (item.ItemType.ToLower() == "_referencesfromnugetpackages")
+                {
+                    var file = item.EvaluatedInclude;
+                    this.ProjectModel.AddAssemblyReference(file);
+                }
+            }
             return result;
         }
 
@@ -1579,7 +1597,7 @@ namespace XSharp.Project
                 }
                 _taskListManager.Refresh();
             }
-            RefreshIncludeFiles();
+            ThreadUtilities.runSafe(RefreshIncludeFiles);
 
         }
 
@@ -1642,14 +1660,10 @@ namespace XSharp.Project
             finally
             {
                 this.EventTriggeringFlag = oldEvents;
-                ThreadUtilities.runSafe(() =>
+                if (hasChanged)
                 {
-                    if (hasChanged)
-                    {
-                        this.OnItemsAppended(includeNode);
-                    }
-
-                });
+                    this.OnItemsAppended(includeNode);
+                }
             }
         }
         private void OnFileWalkComplete(XFile xfile)
@@ -1678,25 +1692,31 @@ namespace XSharp.Project
             // XSharpFolderNode
             // XSharpProjectReference
             // So, we will add files only (currently) => Don't forget RemoveURL
-            if (IsXSharpProjectFile(url))
+
+            if (node is ReferenceNode)
             {
-                this.ProjectModel.AddProjectReference(url);
-            }
-            else if (IsOtherProjectFile(url))
-            {
-                this.ProjectModel.AddStrangerProjectReference(url);
-            }
-            else
-            {
-                if (node is XSharpFileNode xNode && !xNode.IsNonMemberItem)
+                if (XProject.IsXSharpProject(url))
                 {
-                    if (File.Exists(url))
+                    this.ProjectModel.AddProjectReference(url);
+                }
+                else if (IsOtherProjectFile(url))
+                {
+                    this.ProjectModel.AddStrangerProjectReference(url);
+                }
+                else
+                {
+                    // this must be an assembly reference or com reference
+                }
+            }
+            else if (node is XSharpFileNode filenode)
+            {
+                if (File.Exists(url) && !filenode.IsNonMemberItem)
+                {
+
+                    this.ProjectModel.AddFile(url, filenode.FileType);
+                    if (IsXamlFile(url))
                     {
-                        this.ProjectModel.AddFile(url, xNode.FileType);
-                        if (IsXamlFile(url))
-                        {
-                            base.ObserveItem(url);
-                        }
+                        base.ObserveItem(url);
                     }
                 }
             }
@@ -1746,7 +1766,7 @@ namespace XSharp.Project
             {
                 //
                 // We should remove the external projects entries
-                if (IsXSharpProjectFile(url))
+                if (XProject.IsXSharpProject(url))
                 {
                     this.ProjectModel.RemoveProjectReference(url);
                 }
@@ -1783,17 +1803,6 @@ namespace XSharp.Project
 
 
         /// <summary>
-        /// Check if fullpath points to a XSharp Project file.
-        /// </summary>
-        /// <param name="fullPath"></param>
-        /// <returns></returns>
-        private bool IsXSharpProjectFile(string fullPath)
-        {
-            return fullPath.EndsWith(".xsproj", StringComparison.OrdinalIgnoreCase)
-                || fullPath.EndsWith(".xsprj", StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
         /// Check if fullpath points to a file, whose extension ends with "proj" so it might be project file.
         /// </summary>
         /// <param name="fullPath"></param>
@@ -1811,6 +1820,20 @@ namespace XSharp.Project
             return false;
         }
 
+        void RemoveEmptyProperty(ProjectInstance projectInstance,string propertyName)
+        {
+            var prop = projectInstance.GetProperty(propertyName);
+            var tmp = prop?.EvaluatedValue;
+            if (!string.IsNullOrEmpty(tmp))
+            {
+                tmp = tmp.Replace('\r', ' ').Trim();
+                tmp = tmp.Replace('\n', ' ').Trim();
+                if (string.IsNullOrEmpty(tmp))
+                    projectInstance.RemoveProperty(propertyName);
+            }
+
+        }
+
         protected override BuildSubmission DoMSBuildSubmission(BuildKind buildKind, string target, ref ProjectInstance projectInstance, MSBuildCoda uiThreadCallback)
         {
             bool designTime = BuildKind.Sync == buildKind;
@@ -1818,80 +1841,56 @@ namespace XSharp.Project
             {
                 projectInstance = BuildProject.CreateProjectInstance();
             }
-            projectInstance.SetProperty("ProvideCommandLineArgs", "true");
+            RemoveEmptyProperty(projectInstance, XSharpProjectFileConstants.PreBuildEvent);
+            RemoveEmptyProperty(projectInstance, XSharpProjectFileConstants.PostBuildEvent);
+			projectInstance.SetProperty("ProvideCommandLineArgs", "true");
             if (designTime)
             {
                 projectInstance.SetProperty("SkipCompilerExecution", "true");
                 projectInstance.SetProperty("DesignTimeBuild", "true");
             }
             var result = base.DoMSBuildSubmission(buildKind, target, ref projectInstance, uiThreadCallback);
-            ProcessOptions(projectInstance, target);
-
             return result;
         }
 
-        private List<string> _commandLineArguments = new List<string>();
-        protected List<ProjectItemInstance> _sdkReferences = new List<ProjectItemInstance>();
-        protected List<ProjectItemInstance> _allReferenceAssemblies = new List<ProjectItemInstance>();
-        void ProcessOptions(ProjectInstance projectInstance, string target)
+        private string ResponseFilePath
         {
-            Logger.Information($"Build:  Invocation Result for target '{target}'");
-            if (projectInstance != null && this.IsSdkProject)
+            get
             {
-                var commandLineArguments = new List<string>();
-                var sdkReferences = new List<ProjectItemInstance>();
-                var allReferenceAssemblies = new List<ProjectItemInstance>();
-                //Logger.Information($"Build:  Properties for projectInstance {projectInstance.FullPath}");
-                //foreach (var item in projectInstance.Properties)
-                //{
-                //    Logger.Information($"Prop: {item.Name} {item.EvaluatedValue}");
-                //}
-                Logger.Information($"Build:  Items for projectInstance {projectInstance.FullPath}");
-                var items = projectInstance.Items.ToArray();
-                bool isSdk = this.IsSdkProject;
-                foreach (var item in items)
-                {
-                    switch (item.ItemType.ToLower())
-                    {
-                        case "reference" when ! isSdk:
-                            allReferenceAssemblies.AddUnique(item);
-                            break;
-                        case "referencepath" when isSdk:
-                            var file = item.EvaluatedInclude.Replace("/", "\\");
-                            allReferenceAssemblies.AddUnique(item);
-                            if (item.GetMetadataValue("NugetSourceType")?.ToLower() == "package")
-                            {
-                                Logger.Information($"Item: Package{item.ItemType} {item.EvaluatedInclude}");
-                                continue;
-                            }
-                            if (item.HasMetadata("FrameworkReferenceName"))
-                                sdkReferences.AddUnique(item);
-                            break;
-                        case "xsccommandlineargs":
-                            commandLineArguments.AddUnique(item.EvaluatedInclude);
-                            break;
-                        case "resolvedframeworkreference":
-                            break;
-                        default:
-                            continue;
-                    }
-                    Logger.Information($"Item: {item.ItemType} {item.EvaluatedInclude}");
-                }
-                if (commandLineArguments.Count > 0)
-                {
-                    _commandLineArguments = commandLineArguments;
-                }
-                if (sdkReferences.Count > 0)
-                {
-                    _sdkReferences = sdkReferences;
-                }
-                if (allReferenceAssemblies.Count > 0)
-                {
-                    _allReferenceAssemblies = allReferenceAssemblies;
-                }
-
+                string file = Path.GetFileName(this.OutputFile);
+                file = Path.Combine(IntermediateOutputPath, Path.ChangeExtension(file,"rsp"));
+                return file;
             }
         }
+        protected virtual List<string> RefreshReferencesFromResponseFile()
+        {
+            // find the resource file and read the lines with /reference
+            string file = this.ResponseFilePath;
+            var references = new List<string>();
+            if (File.Exists(file))
+            {
+                var response = File.ReadAllText(file);
+                response = response.Replace("\r", "");
+                response = response.Replace("\n", "");
+                var lines = response.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    if (line.StartsWith("reference:"))
+                    {
+                        var reffile = line.Substring(10).Trim();
+                        if (reffile[0] == '"')
+                            reffile = reffile.Substring(1, reffile.Length - 2);
+                        references.Add(reffile);
+
+                    }
+                }
+                ProjectModel.RefreshReferences(references);
+            }
+            return references;
+        }
+
+
+
 
         internal void BuildStarted()
         {
@@ -1962,6 +1961,7 @@ namespace XSharp.Project
 
         internal void Unload()
         {
+            this.BeforeSave();
             this.BuildProject.Save();
             this.UnloadProject();
         }
@@ -2007,21 +2007,16 @@ namespace XSharp.Project
             this.CreateIncludeFileFolder();
             if (ResetDependencies() && !this.IsSdkProject)
             {
+                this.BeforeSave();
                 this.BuildProject.Save();
             }
             RefreshIncludeFiles();
         }
 
-        protected virtual List<ProjectItemInstance> RefreshReferences()
+        protected virtual List<string> RefreshReferences()
         {
             // find the resource file and read the lines with /reference
-            List<string> references = new List<string>();
-            foreach (var item in _allReferenceAssemblies)
-            {
-                references.Add(item.EvaluatedInclude);
-            }
-            ProjectModel.RefreshReferences(references);
-            return _allReferenceAssemblies;
+            return RefreshReferencesFromResponseFile();
         }
 
         internal void UpdateReferencesInProjectModel()
@@ -2045,14 +2040,33 @@ namespace XSharp.Project
                 }
             }
         }
-
-
+#if DEV17
+        internal IList<XSharpSDKProjectReferenceNode> GetSdkProjectReferences()
+        {
+            var nodes = new List<XSharpSDKProjectReferenceNode>();
+            var container = this.GetReferenceContainer() as ReferenceContainerNode;
+            if (container != null)
+                container.FindNodesOfType(nodes);
+            return nodes;
+        }
+        internal IList<XSharpSDKProjectReferenceNode> ClearSdkProjectReferences()
+        {
+            var nodes = GetSdkProjectReferences();
+            foreach (var node in nodes)
+            {
+                node.RemoveProperties();
+            }
+            return nodes;
+        }
+#endif
+#if DEV17
         public override int Save(string fileToBeSaved, int remember, uint formatIndex)
         {
-            this.UpdateProjectVersion();
-            return base.Save(fileToBeSaved, remember, formatIndex);
+            var result = base.Save(fileToBeSaved, remember, formatIndex);
+            this.SetProjectFileDirty(false);
+            return result;
         }
-
+#endif
         internal class FileToMove
         {
             internal XSharpFileNode Node;
@@ -2412,7 +2426,6 @@ namespace XSharp.Project
             // First remove the Navigation Data
             //
             ThreadHelper.ThrowIfNotOnUIThread();
-            Logger.Debug("Close " + this.ProjectFile);
             // CleanUp the CodeModel
             if (projectModel != null)
             {
@@ -2498,33 +2511,6 @@ namespace XSharp.Project
                 File.WriteAllText(Url, changedSource);
                 ok = false;
             }
-#if USEPROJECTVERSION
-            //we have added a projectversion property to makes checks easier in the future
-            if (ok)
-            {
-                var vers = this.BuildProject.Properties.Where(p => string.Compare(p.Name, ProjectVersion, StringComparison.OrdinalIgnoreCase) == 0).FirstOrDefault();
-                if (vers != null)
-                {
-                    ok = vers.UnevaluatedValue == Constants.FileVersion;
-                    var version = vers.UnevaluatedValue.Split('.');
-                    if (version.Length == 4)
-                    {
-                        if (Int32.TryParse(version[0], out var ivers1))
-                        {
-                            ok = ivers1 >= 2;
-                        }
-                        if (ok && ivers1 == 2 && Int32.TryParse(version[1], out var ivers2))
-                        {
-                            ok = (ivers2 >= 6);
-                        }
-                        if (ok)
-                        {
-                            return VSConstants.S_OK;
-                        }
-                    }
-                }
-            }
-#endif
             StringWriter backup = new StringWriter();
             BuildProject.Save(backup);
             var str = backup.ToString();
@@ -2661,23 +2647,12 @@ namespace XSharp.Project
             }
             return false;
         }
-
-        private void UpdateProjectVersion()
+        public override void BeforeSave()
         {
-#if USEPROJECTVERSION
-            var xml = BuildProject.Xml;
-            var groups = xml.PropertyGroups.ToList();
-            var grp = groups.Where(g => g.Condition.Trim().Length == 0).FirstOrDefault();
-            if (grp != null)
-            {
-                addProperty(grp, ProjectVersion, Constants.FileVersion);
-            }
-#else
+            base.BeforeSave();
             this.RemoveProjectProperty(XSharpProjectVersion);
             this.RemoveProjectProperty(ProjectFileConstants.TargetPath);
-#endif
         }
-
         private void FixProjectFile(string filename, bool dialectVO)
         {
             bool changed = false;
@@ -2827,8 +2802,8 @@ namespace XSharp.Project
             {
                 if (this.QueryEditProjectFile(true))
                 {
-                    this.UpdateProjectVersion();
                     Utilities.DeleteFileSafe(filename);
+                    this.BeforeSave();
                     BuildProject.Xml.Save(filename);
                     BuildProject.ReevaluateIfNecessary();
                 }
@@ -3146,20 +3121,22 @@ namespace XSharp.Project
                 case DeclaredSourceItems:
                 case DotNet:
                 case Managed:
+                //case PackageReferences:
                 case Publish:
                 case UserSourceItems:
                 case WindowsXAML:
                 case WindowsXaml:
                 case WPF:
                 case XSharp:
-                case PackageReferences:
-                case DependenciesTree:
-                case DependencyPackageManagement:
                     return true;
+                case PackageReferences:
+                    return false;
                 case AspNetCore:
                 case BuildAndroidTarget:
                 case BuildiOSProject:
                 case CPS:
+                case DependenciesTree:
+                case DependencyPackageManagement:
                 case DNX:
                 case DotNetCoreWeb:
                 case DynamicFileNesting:

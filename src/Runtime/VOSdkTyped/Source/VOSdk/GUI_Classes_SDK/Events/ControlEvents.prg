@@ -58,7 +58,7 @@ END CLASS
 CLASS ControlEvent INHERIT @@Event IMPLEMENTS INamedEvent
 PROTECTED oControl   AS VOSDK.Control
 
-    PROPERTY Control     AS VOSDK.Control GET oControl
+    PROPERTY Control     AS VOSDK.Control GET oControl INTERNAL SET oControl := VALUE
     PROPERTY ControlID   AS LONG GET Control:ControlID
     PROPERTY Description AS STRING GET HyperLabel:Description
     PROPERTY HelpContext AS STRING GET HyperLabel:HelpContext
@@ -75,13 +75,12 @@ PROTECTED oControl   AS VOSDK.Control
     PROPERTY NameSym	AS SYMBOL GET HyperLabel:NameSym
 
     [DebuggerStepThrough];
-        CONSTRUCTOR(loControl AS VOSDK.Control)
+    CONSTRUCTOR()
         SUPER()
-    oControl := loControl
 
     [DebuggerStepThrough];
         CONSTRUCTOR (m REF System.Windows.Forms.Message)
-        SUPER(m)
+        SUPER( REF m)
         IF m:lParam != IntPtr.Zero
             oControl := WC.GetControlByHandle(m:lParam)
         ENDIF
@@ -92,14 +91,16 @@ CLASS ControlFocusChangeEvent INHERIT ControlEvent
 PROTECT lGotFocus AS LOGIC
     PROPERTY GotFocus AS LOGIC GET lGotFocus
 
-    [DebuggerStepThrough];
-        CONSTRUCTOR(loControl AS VOSDK.Control, lFocus AS LOGIC)
-        SUPER(loControl)
+
+    CONSTRUCTOR(loControl AS VOSDK.Control, lFocus AS LOGIC)
+        SUPER()
+    SELF:Control := loControl
     lGotFocus := lFocus
 
     [DebuggerStepThrough];
-        CONSTRUCTOR(oFocusChangeEvent AS FocusChangeEvent, loControl AS VOSDK.Control)
-        SUPER(loControl)
+    CONSTRUCTOR(oFocusChangeEvent AS FocusChangeEvent, loControl AS VOSDK.Control)
+        SUPER()
+        SELF:Control := loControl
         lGotFocus := oFocusChangeEvent:GotFocus
 
 END CLASS
@@ -107,8 +108,9 @@ END CLASS
 CLASS ControlNotifyEvent INHERIT ControlEvent
 EXPORT NotifyCode AS DWORD
     [DebuggerStepThrough];
-        CONSTRUCTOR(oC AS Control)
-        SUPER(oC)
+    CONSTRUCTOR(oC AS Control)
+        SUPER()
+        SELF:Control := oC
     /*
     ACCESS NotifyCode AS DWORD STRICT
     LOCAL strucNotify AS _winNMHDR
@@ -122,8 +124,9 @@ END CLASS
 CLASS DateTimeSelectionEvent INHERIT ControlEvent
 
     [DebuggerStepThrough];
-        CONSTRUCTOR(loControl AS VOSDK.Control)
-    SUPER(loControl)
+    CONSTRUCTOR(loControl AS VOSDK.Control)
+        SUPER()
+SELF:Control := loControl
     PROPERTY __DtPicker as VODateTimePicker GET (VODateTimePicker) SELF:Control:__Control
 
 
@@ -148,7 +151,7 @@ CLASS DateTimeSelectionEvent INHERIT ControlEvent
 
 CLASS EditFocusChangeEvent INHERIT ControlFocusChangeEvent
     [DebuggerStepThrough];
-        CONSTRUCTOR(loControl AS VOSDK.Control, lFocus AS LOGIC)
+    CONSTRUCTOR(loControl AS VOSDK.Control, lFocus AS LOGIC)
         SUPER(loControl, lFocus)
         lGotFocus := lFocus
 
@@ -162,7 +165,8 @@ PROTECT _lExplicit AS LOGIC
 
     [DebuggerStepThrough];
     CONSTRUCTOR(loControl AS VOSDK.Control, lExplicit AS LOGIC)
-    SUPER(loControl)
+    SUPER()
+    SELF:Control := loControl
     _lExplicit := lExplicit
 
     ACCESS Explicit AS LOGIC

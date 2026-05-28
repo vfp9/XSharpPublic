@@ -40,19 +40,21 @@ namespace XSharp.Project
 
         static XSharpFileNode()
         {
-            AddExtension(".vnfrm", KnownMonikers.FormInstance);
-            AddExtension(".xsfrm", KnownMonikers.FormInstance);
-            AddExtension(".vndbs", KnownMonikers.Database);
-            AddExtension(".vnmnu", KnownMonikers.MainMenuControl);
-            AddExtension(".xsmnu", KnownMonikers.MainMenuControl);
-            AddExtension(".xsdbs", KnownMonikers.Database);
-            AddExtension(".vnfs", KnownMonikers.ValidationRule);
-            AddExtension(".xsfs", KnownMonikers.ValidationRule);
-            AddExtension(".xssql", KnownMonikers.Database);
-            AddExtension(".xsrep", KnownMonikers.Report);
-            AddExtension(".vnsqs", KnownMonikers.Database);
-            AddExtension(".vnrep", KnownMonikers.Report);
+            //MapExtensionsToMoniker(KnownMonikers.Script, ".prg", ".prgx", ".xs", ".ppo", ".vh", ".xh", ".ch");
+            MapExtensionsToMoniker(KnownMonikers.FormInstance, ".vnfrm", ".xsfrm");
+            MapExtensionsToMoniker(KnownMonikers.Database, ".vndbs", ".xsdbs", ".xssql", ".vnsqs");
+            MapExtensionsToMoniker(KnownMonikers.MainMenuControl, ".vnmnu", ".xsmnu");
+            MapExtensionsToMoniker(KnownMonikers.ValidationRule, ".vnfs", ".xsfs");
+            MapExtensionsToMoniker(KnownMonikers.Report, ".xsrep", ".vnrep");
             AddExtension(".xaml", KnownMonikers.WPFFile);
+        }
+
+        private static void MapExtensionsToMoniker(ImageMoniker moniker, params string[] extensions)
+        {
+            foreach (string extension in extensions)
+            {
+                AddExtension(extension, moniker);
+            }
         }
 
         /// <summary>
@@ -94,6 +96,7 @@ namespace XSharp.Project
                 if (IsForm || IsUserControl || IsNonMemberItem)
                     return true;
 #if DEV17
+                //return base.SupportsIconMonikers || !File.Exists(this.Url);
                 if (!File.Exists(this.Url))
                     return true;
                 return false;
@@ -718,6 +721,19 @@ namespace XSharp.Project
                     break;
             }
         }
+
+        bool ItemHasValue(string itemName, string value)
+        {
+            if (!ItemNode.Item.HasMetadata(itemName))
+                return false;
+            var current = ItemNode.GetMetadata(itemName);
+            if (current != null)
+            {
+                return string.Equals(current, value, StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+
         /// <summary>
         /// Returns the SubType of an XSharp FileNode. It is
         /// </summary>
@@ -731,7 +747,9 @@ namespace XSharp.Project
             {
                 try
                 {
-                    if (IsImported)
+                    if (this.ItemHasValue(ProjectFileConstants.SubType, value))
+                        return;
+                    if (IsImported && !ItemNode.Item.HasMetadata(ProjectFileConstants.SubType))
                         CreateUpdateItem();
                     ItemNode.SetMetadata(ProjectFileConstants.SubType, value);
                     UpdateHasDesigner();
@@ -751,9 +769,14 @@ namespace XSharp.Project
             set
             {
 
-                if (IsImported)
+                if (this.ItemHasValue(ProjectFileConstants.Generator, value))
+                    return;
+                if (IsImported && ! ItemNode.Item.HasMetadata(ProjectFileConstants.Generator)   )
                     CreateUpdateItem();
-                ItemNode.SetMetadata(ProjectFileConstants.Generator, value);
+                if (value == null)
+                    ItemNode.SetMetadata(ProjectFileConstants.Generator, "");
+                else
+                    ItemNode.SetMetadata(ProjectFileConstants.Generator, value);
                 UpdateHasDesigner();
             }
         }

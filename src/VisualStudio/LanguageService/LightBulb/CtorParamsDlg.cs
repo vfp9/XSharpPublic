@@ -24,6 +24,7 @@ namespace XSharp.LanguageService.Editors.LightBulb
         {
             InitializeComponent();
             this.InitImageList();
+            this.colMembers.Width = -1;
             //
             this.listMembers.ListViewItemSorter = new MemberTagValueComparer();
         }
@@ -52,6 +53,7 @@ namespace XSharp.LanguageService.Editors.LightBulb
                 }
                 this.listMembers.Items.Add(lvi);
             }
+            colMembers.Width = -1;
         }
 
         private void btnSelect_Click(object sender, EventArgs e)

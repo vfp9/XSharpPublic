@@ -12,7 +12,7 @@ USING LanguageService.CodeAnalysis.XSharp
 USING System.Collections.Concurrent
 USING System.Reflection
 USING XSharp.Settings
-
+USING System.Linq
 
 #pragma options ("az", ON)
 NAMESPACE XSharpModel
@@ -228,7 +228,7 @@ CLASS XProject
     METHOD RefreshReferences(asmList as IList<string>) AS VOID
         if SELF:ProjectNode == null
 		   RETURN
-		ENDIF   
+		ENDIF
         var oldAsm := XDictionary<string, string>{StringComparer.OrdinalIgnoreCase}
         var newAsm := List<string>{}
         SELF:LogReferenceMessage("RefreshReferences , old "+SELF:AssemblyReferenceNames:Count:ToString()+" new "+asmList:Count:ToString())
@@ -420,7 +420,9 @@ CLASS XProject
         if (String.IsNullOrEmpty(FileName))
             return false
         endif
-        return String.Equals(System.IO.Path.GetExtension(FileName), ".xsproj", StringComparison.OrdinalIgnoreCase)
+        var ext := System.IO.Path.GetExtension(FileName)
+        return String.Equals(ext, ".xsproj", StringComparison.OrdinalIgnoreCase) .or. String.Equals(ext, ".xsprj", StringComparison.OrdinalIgnoreCase)
+
 
     METHOD AddProjectReference(Url AS STRING) AS LOGIC
         IF !IsXSharpProject(Url)
@@ -801,8 +803,10 @@ CLASS XProject
         SELF:LogTypeMessage(i"FindFunctionsLike {name}, found {result.Count} occurences")
         RETURN result
 
-
     METHOD FindFunction(name AS STRING, lRecursive := TRUE AS LOGIC) AS IXMemberSymbol
+        var members := SELF:FindFunctions(name, lRecursive)
+        return members:FirstOrDefault()
+    METHOD FindFunctions(name AS STRING, lRecursive := TRUE AS LOGIC) AS IList<IXMemberSymbol>
         // we look in the project references and assembly references
         // pass the list of ProjectIds and AssemblyIds to the database engine
         SELF:LogTypeMessage(ie"FindFunction {name} ")
@@ -812,9 +816,9 @@ CLASS XProject
             projectIds    := SELF:DependentProjectList
         ENDIF
         VAR result := XDatabase.FindFunction(name, projectIds)
-        VAR xmember := SELF:GetGlobalMember(result)
-        SELF:LogTypeMessage(ie"FindFunction {name}, result {iif (xmember != NULL, xmember.FullName, \"not found\")} ")
-        RETURN xmember
+        VAR xmembers := SELF:GetGlobalMembers(result)
+        SELF:LogTypeMessage(ie"FindFunction {name}, result {result:Count} ")
+        RETURN xmembers
 
     METHOD FindGlobalOrDefine(name AS STRING, lRecursive := TRUE AS LOGIC) AS IXMemberSymbol
         // we look in the project references and assembly references
@@ -830,6 +834,9 @@ CLASS XProject
         RETURN xmember
 
     PRIVATE METHOD GetGlobalMember(result AS IList<XDbResult>) AS IXMemberSymbol
+        var members := SELF:GetGlobalMembers(result)
+        return iif(members?:Count() > 0, members[0], NULL)
+    PRIVATE METHOD GetGlobalMembers(result AS IList<XDbResult>) AS List<IXMemberSymbol>
         IF result:Count > 0
             // Get the source code and parse it into a member
             // we know that it will be of the globals class
@@ -870,7 +877,7 @@ CLASS XProject
                 ENDIF
             NEXT
             parentType:SetMembers(entities)
-            RETURN first
+            RETURN entities:ToList<IXMemberSymbol>()
         ENDIF
         RETURN NULL
 
@@ -1148,6 +1155,9 @@ CLASS XProject
         LOCAL projectIds as STRING
         local interfaces as STRING
         local baseTypeName as STRING
+        LOCAL nTypeId as INT64
+        LOCAL nProjectId as INT64
+        LOCAL nTypes := 0 as INT
         projectIds := ","+self:DependentProjectList+","
         interfaces := ""
         FOREACH var element in found
@@ -1156,6 +1166,9 @@ CLASS XProject
                 IF sTypeIds:Length > 0
                     sTypeIds += ", "
                 ENDIF
+                nTypes += 1
+                nTypeId := element:IdType
+                nProjectId := element:IdProject
                 sTypeIds += element:IdType:ToString()
                 if ! String.IsNullOrEmpty(element:XmlComments)
                     cXmlComment := element:XmlComments
@@ -1177,7 +1190,12 @@ CLASS XProject
         interfaces := interfaces:Replace("\n","")
         VAR aIF := interfaces.Split(<CHAR>{c','}, StringSplitOptions.RemoveEmptyEntries)
         //todo Collect interfaces from IMPLEMENTS clauses
-        VAR members  := XDatabase.GetMembers(sTypeIds):ToArray()
+        LOCAL members as IList<XDbResult>
+        IF nTypes == 1
+            members := XDatabase.GetMembers(nTypeId, nProjectId):ToArray()
+        ELSE
+            members  := XDatabase.GetMembers(sTypeIds):ToArray()
+        ENDIF
         VAR oType   := found[0]
         var project := XSolution.FindProjectByFileName(oType:Project)
         if project == null
@@ -1224,7 +1242,7 @@ CLASS XProject
                     dict[key]:Add(m)
                 NEXT
                 LOCAL i AS INT
-                FOR i := 0 TO members:Length-1
+                FOR i := 0 TO members:Count-1
                     LOCAL melement  := members[i] as XDbResult
                     var key := melement:Kind:ToString()+" "+melement:MemberName
                     if dict:ContainsKey(key)

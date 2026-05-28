@@ -16,7 +16,7 @@ using Task = System.Threading.Tasks.Task;
 using Community.VisualStudio.Toolkit;
 using System.Text;
 using System.Xml;
-using XSharp.Settings;
+using XSharp.Support;
 namespace XSharp.LanguageService
 {
     // No need to do a complicated lookup for the reference assembly names
@@ -27,12 +27,18 @@ namespace XSharp.LanguageService
         static IVsXMLMemberIndexService _XMLMemberIndexService ;
         static string coreLoc ;
         static IVsXMLMemberIndex coreIndex ;
+        static readonly object _initLock = new object();
         static XSharpXMLDocTools()
         {
             _memberIndexes = new Dictionary<string, IVsXMLMemberIndex>();
             _XMLMemberIndexService = null;
             coreLoc = "";
             coreIndex = null;
+            VS.Events.SolutionEvents.OnAfterCloseSolution += SolutionEvents_OnAfterCloseSolution;
+        }
+        private static void SolutionEvents_OnAfterCloseSolution()
+        {
+            XSharpXMLDocTools.Close();
         }
 
         static void init()
@@ -41,8 +47,12 @@ namespace XSharp.LanguageService
 
         static bool GetIndex()
         {
-            if (_XMLMemberIndexService == null)
+            if (_XMLMemberIndexService != null)
+                return true;
+            lock (_initLock)
             {
+                if (_XMLMemberIndexService != null)
+                    return true;
                 ThreadHelper.JoinableTaskFactory.Run(async ( )=>
                 {
                     _XMLMemberIndexService = await VS.GetServiceAsync<SVsXMLMemberIndexService, IVsXMLMemberIndexService>();

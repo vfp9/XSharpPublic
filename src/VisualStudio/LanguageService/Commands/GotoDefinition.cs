@@ -7,7 +7,7 @@ using System.IO;
 using XSharpModel;
 using File = System.IO.File;
 using XSharp.Settings;
-
+using XSharp.Support;
 namespace XSharp.LanguageService
 {
     class XSharpGotoDefinition
@@ -15,15 +15,15 @@ namespace XSharp.LanguageService
 
         internal static void Goto(IXSymbol element, ITextView TextView, CompletionState state)
         {
-            if (element is IXTypeSymbol xtype)
-            {
-                // when the cursor is before a "{" then goto the constructor and not the type
-                var ctors = xtype.GetConstructors();
-                if (ctors.Length > 0)
-                {
-                    element = ctors[0];
-                }
-            }
+            //if (element is IXTypeSymbol xtype)
+            //{
+            //    // when the cursor is before a "{" then goto the constructor and not the type
+            //    var ctors = xtype.GetConstructors();
+            //    if (ctors.Length > 0)
+            //    {
+            //        element = ctors[0];
+            //    }
+            //}
 
             if (element is XSourceEntity source)
             {
@@ -54,9 +54,15 @@ namespace XSharp.LanguageService
                 var result = TextView.GetSymbolUnderCursor(out var state,out _, out _);
                 //
                 ThreadHelper.ThrowIfNotOnUIThread();
-                if (result.Count > 0)
+                if (result.Count == 1)
                 {
                     Goto(result[0], TextView, state);
+                    return;
+                }
+                if (result.Count > 1)
+                {
+                    var window = new GotoDefinitionResultsWindow(result, TextView, state);
+                    window.Show();
                     return;
                 }
             }
@@ -148,7 +154,15 @@ namespace XSharp.LanguageService
                 {
                     if (entity.Name == element.Name)
                     {
-                        return entity;
+                        if (entity is IXMemberSymbol m1 && element is IXMemberSymbol m2)
+                        {
+                            if (m1.Prototype == m2.Prototype)
+                                return entity;
+                        }
+                        else if (entity.FullName == element.FullName)
+                        {
+                            return entity;
+                        }
                     }
                 }
             }

@@ -556,7 +556,7 @@ namespace Microsoft.VisualStudio.Project
         }
 
         /// <summary>
-        /// Defines whether this node is valid node for painting the refererence icon.
+        /// Defines whether this node is valid node for painting the reference icon.
         /// </summary>
         /// <returns></returns>
         protected override bool CanShowDefaultIcon()
@@ -574,7 +574,11 @@ namespace Microsoft.VisualStudio.Project
                 foreach (var project in projects)
                 {
                     if (String.Equals(project.Name, this.referencedProjectName, StringComparison.OrdinalIgnoreCase))
+                    {
                         result = true;
+                        break;
+                    }
+                    
                 }
 
             });

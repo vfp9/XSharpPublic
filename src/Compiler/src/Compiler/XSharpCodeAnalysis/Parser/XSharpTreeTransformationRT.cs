@@ -1427,12 +1427,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             TypeSyntax returntype = null;
             if (chain != null && context.Data.HasClipperCallingConvention)
             {
+
                 var chainArgs = args?.Get<ArgumentListSyntax>() ?? EmptyArgumentList();
                 var chainExpr = MakeSimpleMemberAccess(
                     chain.Start.Type == XP.SELF ? GenerateSelf() : GenerateSuper(),
                     GenerateSimpleName(WellKnownMemberNames.InstanceConstructorName));
+                chainExpr.XNode = chain;
                 body = MakeBlock(MakeList<StatementSyntax>(
-                    GenerateExpressionStatement(_syntaxFactory.InvocationExpression(chainExpr, chainArgs), context.Context()),
+                    GenerateExpressionStatement(_syntaxFactory.InvocationExpression(chainExpr, chainArgs), chain),
                     body));
                 chain = null;
             }
@@ -3758,7 +3760,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             // Add missing return type when needed. OBJECT or USUAL depending on the dialect.
             if (context.Data.HasMissingReturnType && !context.Data.MustBeVoid)
             {
-                dataType = _getMissingType();
+                dataType = DefaultType();
             }
         }
 

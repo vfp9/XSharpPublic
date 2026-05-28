@@ -12,7 +12,9 @@ using XSharpModel;
 using LanguageService.CodeAnalysis.XSharp.SyntaxParser;
 using Microsoft.VisualStudio.Text.Tagging;
 using XSharp.Settings;
-#if ! ASYNCCOMPLETION
+using XSharp.Support;
+using Microsoft.VisualStudio.Shell;
+#if !ASYNCCOMPLETION
 namespace XSharp.LanguageService
 {
     partial class XSharpCompletionSource : ICompletionSource
@@ -41,7 +43,7 @@ namespace XSharp.LanguageService
             _file = file;
             var prj = _file.Project.ProjectNode;
             _dialect = _file.Project.Dialect;
-            helpers = new CompletionHelpers(_dialect, provider.GlyphService, file, !prj.ParseOptions.CaseSensitive);
+            helpers = new CompletionHelpers(_dialect, file, !prj.ParseOptions.CaseSensitive);
             this._tagAggregator = aggregator.CreateTagAggregator<IClassificationTag>(_buffer);
 
         }
@@ -139,7 +141,6 @@ namespace XSharp.LanguageService
                 int tokenType = XSharpLexer.UNRECOGNIZED;
 
                 var symbol = XSharpLookup.RetrieveElement(location, tokenList, CompletionState.General).FirstOrDefault();
-                var isInstance = true;
                 var memberName = "";
                 if (symbol is XSourceUndeclaredVariableSymbol)
                 {
@@ -149,12 +150,23 @@ namespace XSharp.LanguageService
                 {
                     if (symbol is IXTypeSymbol xtype )
                     {
-                        isInstance = false;
+                        var prj = location.Project;
+                        if (typedChar == ':')
+                        {
+                            state = CompletionState.InstanceMembers;
+                        }
+                        else if (typedChar == '.')
+                        {
+                            state = CompletionState.StaticMembers;
+                            if (prj != null && prj.ParseOptions.AllowDotForInstanceMembers)
+                            {
+                                state |= CompletionState.InstanceMembers;
+                            }
+                        }
                         type = xtype;
                     }
                     else if (symbol.Kind == Kind.Namespace)
                     {
-                        isInstance = false;
                         if (! state.HasFlag(CompletionState.Namespaces))
                         {
                             state = CompletionState.Namespaces | CompletionState.Types;
@@ -162,7 +174,6 @@ namespace XSharp.LanguageService
                     }
                     else
                     {
-                        isInstance = true;
                         if (showInstanceMembers)
                         {
                             state |= CompletionState.InstanceMembers;
@@ -296,6 +307,11 @@ namespace XSharp.LanguageService
                            int dotPos = filterText.LastIndexOf('.');
                             if (dotPos > 0)
                                 filterText = filterText.Substring(dotPos + 1, filterText.Length - dotPos - 1);
+                            ThreadHelper.JoinableTaskFactory.Run(async delegate
+                            {
+                                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                            });
+
                             helpers.BuildCompletionListMembers(location, compList, type, Modifiers.Public, true, filterText);
                         }
                     }
@@ -312,7 +328,7 @@ namespace XSharp.LanguageService
                             filterText = "";
                     }
                 }
-                if (showInstanceMembers && isInstance)
+                if (showInstanceMembers)
                 {
                     // Member call
                     if (type != null)

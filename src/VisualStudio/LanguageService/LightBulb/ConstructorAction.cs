@@ -182,12 +182,12 @@ namespace XSharp.LanguageService.Editors.LightBulb
                         foreach ( var mbr in dlg.FieldsNProps)
                         {
                             insertText.Append(" ");
-                            // xxx AS xsType
-                            string paramDef = mbr.Prototype.Trim( new char[] { '_' });
-                            // xxx
-                            string paramName = paramDef.Substring(0,paramDef.IndexOf(' '));
+                            string paramName = mbr.Name;
+                            if (XLiterals.IsKeyword(paramName))
+                                paramName = "@@" + paramName;
+
                             // AS xsType
-                            paramDef = paramDef.Substring(paramName.Length);
+                            string paramDef = XLiterals.AsKeyWord + mbr.TypeName;
                             string candidate = paramName;
                             while ( usedParams.Contains(candidate.ToLower()))
                             {

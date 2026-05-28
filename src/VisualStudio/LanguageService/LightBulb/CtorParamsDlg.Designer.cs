@@ -43,9 +43,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // 
             // btnCancel
             // 
-            this.btnCancel.Location = new System.Drawing.Point(452, 373);
+            this.btnCancel.Location = new System.Drawing.Point(339, 303);
+            this.btnCancel.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnCancel.Name = "btnCancel";
-            this.btnCancel.Size = new System.Drawing.Size(75, 30);
+            this.btnCancel.Size = new System.Drawing.Size(56, 24);
             this.btnCancel.TabIndex = 0;
             this.btnCancel.Text = "Cancel";
             this.btnCancel.UseVisualStyleBackColor = true;
@@ -53,9 +54,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // 
             // btnOk
             // 
-            this.btnOk.Location = new System.Drawing.Point(371, 373);
+            this.btnOk.Location = new System.Drawing.Point(278, 303);
+            this.btnOk.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnOk.Name = "btnOk";
-            this.btnOk.Size = new System.Drawing.Size(75, 30);
+            this.btnOk.Size = new System.Drawing.Size(56, 24);
             this.btnOk.TabIndex = 1;
             this.btnOk.Text = "OK";
             this.btnOk.UseVisualStyleBackColor = true;
@@ -68,18 +70,21 @@ namespace XSharp.LanguageService.Editors.LightBulb
             this.groupBox1.Controls.Add(this.btnDown);
             this.groupBox1.Controls.Add(this.btnUp);
             this.groupBox1.Controls.Add(this.listMembers);
-            this.groupBox1.Location = new System.Drawing.Point(12, 36);
+            this.groupBox1.Location = new System.Drawing.Point(9, 29);
+            this.groupBox1.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(515, 314);
+            this.groupBox1.Padding = new System.Windows.Forms.Padding(2, 2, 2, 2);
+            this.groupBox1.Size = new System.Drawing.Size(386, 255);
             this.groupBox1.TabIndex = 2;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "Pick members to be used as constructor parameters";
             // 
             // btnDeselect
             // 
-            this.btnDeselect.Location = new System.Drawing.Point(404, 161);
+            this.btnDeselect.Location = new System.Drawing.Point(303, 131);
+            this.btnDeselect.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnDeselect.Name = "btnDeselect";
-            this.btnDeselect.Size = new System.Drawing.Size(105, 30);
+            this.btnDeselect.Size = new System.Drawing.Size(79, 24);
             this.btnDeselect.TabIndex = 6;
             this.btnDeselect.Text = "Deselect All";
             this.btnDeselect.UseVisualStyleBackColor = true;
@@ -87,9 +92,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // 
             // btnSelect
             // 
-            this.btnSelect.Location = new System.Drawing.Point(404, 125);
+            this.btnSelect.Location = new System.Drawing.Point(303, 102);
+            this.btnSelect.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnSelect.Name = "btnSelect";
-            this.btnSelect.Size = new System.Drawing.Size(105, 30);
+            this.btnSelect.Size = new System.Drawing.Size(79, 24);
             this.btnSelect.TabIndex = 5;
             this.btnSelect.Text = "Select All";
             this.btnSelect.UseVisualStyleBackColor = true;
@@ -97,9 +103,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // 
             // btnDown
             // 
-            this.btnDown.Location = new System.Drawing.Point(404, 67);
+            this.btnDown.Location = new System.Drawing.Point(303, 54);
+            this.btnDown.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnDown.Name = "btnDown";
-            this.btnDown.Size = new System.Drawing.Size(105, 30);
+            this.btnDown.Size = new System.Drawing.Size(79, 24);
             this.btnDown.TabIndex = 4;
             this.btnDown.Text = "Down";
             this.btnDown.UseVisualStyleBackColor = true;
@@ -107,9 +114,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // 
             // btnUp
             // 
-            this.btnUp.Location = new System.Drawing.Point(404, 31);
+            this.btnUp.Location = new System.Drawing.Point(303, 25);
+            this.btnUp.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.btnUp.Name = "btnUp";
-            this.btnUp.Size = new System.Drawing.Size(105, 30);
+            this.btnUp.Size = new System.Drawing.Size(79, 24);
             this.btnUp.TabIndex = 3;
             this.btnUp.Text = "Up";
             this.btnUp.UseVisualStyleBackColor = true;
@@ -126,9 +134,10 @@ namespace XSharp.LanguageService.Editors.LightBulb
             this.listMembers.HideSelection = false;
             this.listMembers.HotTracking = true;
             this.listMembers.HoverSelection = true;
-            this.listMembers.Location = new System.Drawing.Point(19, 31);
+            this.listMembers.Location = new System.Drawing.Point(14, 25);
+            this.listMembers.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.listMembers.Name = "listMembers";
-            this.listMembers.Size = new System.Drawing.Size(368, 265);
+            this.listMembers.Size = new System.Drawing.Size(277, 216);
             this.listMembers.TabIndex = 0;
             this.listMembers.UseCompatibleStateImageBehavior = false;
             this.listMembers.View = System.Windows.Forms.View.Details;
@@ -136,17 +145,18 @@ namespace XSharp.LanguageService.Editors.LightBulb
             // colMembers
             // 
             this.colMembers.Text = "Members";
-            this.colMembers.Width = 329;
+            this.colMembers.Width = 25;
             // 
             // CtorParamsDlg
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(539, 415);
+            this.ClientSize = new System.Drawing.Size(404, 337);
             this.Controls.Add(this.groupBox1);
             this.Controls.Add(this.btnOk);
             this.Controls.Add(this.btnCancel);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            this.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.Name = "CtorParamsDlg";

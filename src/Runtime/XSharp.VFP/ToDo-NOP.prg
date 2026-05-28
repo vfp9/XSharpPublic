@@ -15,25 +15,11 @@ FUNCTION NewObject( cClassName ,_args) AS OBJECT
     // RETURN NULL_OBJECT
 
 /// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/normalize/*" />
-[FoxProFunction("NORMALIZE", FoxFunctionCategory.General, FoxEngine.SQL, FoxFunctionStatus.Stub, FoxCriticality.Low)];
-FUNCTION Normalize( cExpression ) AS STRING
-    THROW NotImplementedException{}
-    // RETURN ""
-
-/// <summary>-- todo --</summary>
 /// <include file="VFPDocs.xml" path="Runtimefunctions/oldval/*" />
 [FoxProFunction("OLDVAL", FoxFunctionCategory.CursorAndTable, FoxEngine.WorkArea, FoxFunctionStatus.Stub, FoxCriticality.High)];
 FUNCTION OldVal( cExpression , uArea ) AS USUAL
     THROW NotImplementedException{}
     // RETURN NIL
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/pcol/*" />
-[FoxProFunction("PCOL", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Stub, FoxCriticality.Low)];
-FUNCTION PCol( ) AS LONG
-    THROW NotImplementedException{}
-    // RETURN 0
 
 /// <summary>-- todo --</summary>
 /// <include file="VFPDocs.xml" path="Runtimefunctions/primary/*" />
@@ -42,13 +28,6 @@ FUNCTION PCol( ) AS LONG
 FUNCTION Primary( nIndexNumber, uArea) AS LOGIC
     THROW NotImplementedException{}
     // RETURN FALSE
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/prow/*" />
-[FoxProFunction("PROW", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Stub, FoxCriticality.Low)];
-FUNCTION PRow( ) AS LONG
-    THROW NotImplementedException{}
-    // RETURN 0
 
 /// <summary>-- todo --</summary>
 /// <include file="VFPDocs.xml" path="Runtimefunctions/prtinfo/*" />

@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See License.txt in the project root for license information.
 //
+USING XSharp.Internal
 
 /// <include file="VfpRuntimeDocs.xml" path="Runtimefunctions/date/*" />
 [FoxProFunction("DATE", FoxFunctionCategory.DateAndTime, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.High)];
@@ -65,16 +66,13 @@ FUNCTION Version(nType := 0 AS INT) AS USUAL
 FUNCTION Seconds() AS REAL8
     RETURN XSharp.Core.Functions.Seconds()
 
-// -------------------------------------------------------------
-// TODO(irwin): functions to check
-// -------------------------------------------------------------
 /// <include file="VfpRuntimeDocs.xml" path="Runtimefunctions/fchsize/*" />
 [FoxProFunction("FCHSIZE", FoxFunctionCategory.FileAndIO, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.Medium)];
 FUNCTION FChSize(nFileHandle AS INT64, nNewSize AS INT64) AS INT64
-    IF ! XSharp.Core.Functions.FChSize(nFileHandle, nNewSize)
+    IF ! XSharp.Core.Functions.FChSize((IntPtr) nFileHandle, nNewSize)
         RETURN -1
     ENDIF
-    RETURN XSharp.Core.Functions.FSize(nFileHandle)
+    RETURN XSharp.Core.Functions.FSize((IntPtr) nFileHandle)
 
 /// <include file="VfpRuntimeDocs.xml" path="Runtimefunctions/fclose/*" />
 [FoxProFunction("FCLOSE", FoxFunctionCategory.FileAndIO, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.High)];
@@ -194,6 +192,12 @@ FUNCTION FSize(cFieldName AS STRING, eWorkArea := NIL AS USUAL) AS INT
 
     RETURN 0
 
+FUNCTION FSize() AS DWORD
+    RETURN XSharp.Core.Functions.FSize()
+
+FUNCTION FSize(pFile AS IntPtr) AS INT64
+    RETURN XSharp.Core.Functions.FSize(pFile)
+
 /// <include file="VfpRuntimeDocs.xml" path="Runtimefunctions/fwrite/*" />
 [FoxProFunction("FWRITE", FoxFunctionCategory.FileAndIO, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.High)];
 FUNCTION FWrite(nFileHandle AS INT64, cExpression AS STRING, nCharactersWritten := 0 AS INT) AS INT
@@ -203,8 +207,9 @@ FUNCTION FWrite(nFileHandle AS INT64, cExpression AS STRING, nCharactersWritten 
     RETURN (INT) XSharp.Core.Functions.FWrite(nFileHandle, cExpression, (DWORD) nCharactersWritten)
 
 /// <include file="VfpRuntimeDocs.xml" path="Runtimefunctions/adir/*" />
+[FoxArrayInputParameter(1)];
 [FoxProFunction("ADIR", FoxFunctionCategory.Array, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.High)];
-FUNCTION ADir(ArrayName AS ARRAY, cFileSkeleton := "" AS STRING, cAttribute := "" AS STRING, nFlag := 0 AS INT) AS INT
+FUNCTION ADir(ArrayName AS USUAL, cFileSkeleton := "" AS STRING, cAttribute := "" AS STRING, nFlag := 0 AS INT) AS INT
     LOCAL aDirInfo AS ARRAY
     LOCAL nFiles AS DWORD
     LOCAL i AS DWORD
@@ -217,13 +222,13 @@ FUNCTION ADir(ArrayName AS ARRAY, cFileSkeleton := "" AS STRING, cAttribute := "
     nFiles := XSharp.RT.Functions.ALen(aDirInfo)
 
     IF nFiles > 0
+        // Redimensiona o inicializa el USUAL mágicamente creado
+        ArrayName := __FoxRedim(ArrayName, nFiles, 5)
+
         IF ArrayName IS __FoxArray VAR foxArray
-            foxArray:ReDim(nFiles, 5) // (name, size, date, time, attributes)
             FOR i := 1 TO nFiles
                 LOCAL aFile AS ARRAY
                 aFile := (ARRAY) aDirInfo[i]
-
-                // nFlag 0 = UPPERCASE (Default in VFP)
                 IF nFlag == 0
                     foxArray[(INT)i, 1] := ((STRING)aFile[1]):ToUpper()
                 ELSE
@@ -235,6 +240,7 @@ FUNCTION ADir(ArrayName AS ARRAY, cFileSkeleton := "" AS STRING, cAttribute := "
                 foxArray[(INT)i, 5] := (STRING)aFile[5]
             NEXT
         ELSE
+            // Por si nos enviaron un ARRAY nativo tradicional de VO
             XSharp.RT.Functions.ASize(ArrayName, nFiles)
             FOR i := 1 TO nFiles
                 LOCAL aFile AS ARRAY
@@ -242,14 +248,14 @@ FUNCTION ADir(ArrayName AS ARRAY, cFileSkeleton := "" AS STRING, cAttribute := "
                 IF nFlag == 0
                     aFile[1] := ((STRING)aFile[1]):ToUpper()
                 ENDIF
-                ArrayName[i] := aFile
+                ((ARRAY)ArrayName)[i] := aFile
             NEXT
         ENDIF
     ELSE
         IF ArrayName IS __FoxArray VAR foxArray
             foxArray:ReDim(0, 0)
-        ELSE
-            XSharp.RT.Functions.ASize(ArrayName, 0)
+        ELSEIF ArrayName IS ARRAY VAR arr
+            XSharp.RT.Functions.ASize(arr, 0)
         ENDIF
     ENDIF
 

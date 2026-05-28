@@ -26,8 +26,8 @@
     <WarningLevel>4</WarningLevel>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <CommonInclude>$(CommonDir)</CommonInclude>
-    <XscToolPath>$(BinariesDir)bin\xsc\Debug\net472\</XscToolPath>
-    <XscToolPath Condition="$(Configuration.Contains('Doc'))">$(BinariesDir)bin\xsc\Debug\net472\</XscToolPath>
+    <!--<XscToolPath>$(BinariesDir)bin\xsc\Debug\net472\</XscToolPath>
+    <XscToolPath Condition="$(Configuration.Contains('Doc'))">$(BinariesDir)bin\xsc\Debug\net472\</XscToolPath>-->
     <AZ>false</AZ>
     <CS>true</CS>
     <LB>false</LB>
@@ -71,7 +71,7 @@
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
     <DefineConstants>DEBUG;TRACE;DOCUMENTATION;RUNTIME</DefineConstants>
-    <DisabledWarnings>1591,9015,169,649</DisabledWarnings>
+    <NoWarn>$(DisabledWarnings);$(NoWarn);1591,9015,169,649</NoWarn>
     <CommandLineOption>/noclipcall</CommandLineOption>
 	<vo15>true</vo15>
 	<vo5>false</vo5>

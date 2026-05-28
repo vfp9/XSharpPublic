@@ -15,21 +15,6 @@ FUNCTION KeyMatch(eIndexKey , nIndexNumber , uArea)  AS LOGIC
 
 
 /// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/lineno/*" />
-[FoxProFunction("LINENO", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.LanguageCore, FoxFunctionStatus.Stub, FoxCriticality.Low)];
-FUNCTION LineNo(nPos ) AS LONG
-    THROW NotImplementedException{}
-    // RETURN 0
-
-/// <summary>-- todo --</summary>
-/// <include file="VFPDocs.xml" path="Runtimefunctions/loadpicture/*" />
-[FoxProFunction("LOADPICTURE", FoxFunctionCategory.General, FoxEngine.RuntimeCore, FoxFunctionStatus.Stub, FoxCriticality.Low)];
-FUNCTION LoadPicture( cFileName ) AS OBJECT
-    THROW NotImplementedException{}
-    // RETURN NULL_OBJECT
-
-
-/// <summary>-- todo --</summary>
 /// <include file="VFPDocs.xml" path="Runtimefunctions/locfile/*" />
 // Example: = LOCFILE("","PRG File:prg;Compiled:fxp;Backup:bak","Bestand")
 [FoxProFunction("LOCFILE", FoxFunctionCategory.UIAndWindow, FoxEngine.UI, FoxFunctionStatus.Stub, FoxCriticality.Medium)];

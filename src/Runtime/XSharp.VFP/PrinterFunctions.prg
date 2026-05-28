@@ -5,17 +5,24 @@
 
 USING System
 USING XSharp.VFP
+USING XSharp.Internal
+
+/// <summary>Internal printer row position. Reset by EJECT.</summary>
+GLOBAL __FoxPrinterRow := 0 AS LONG
+/// <summary>Internal printer column position. Reset by EJECT.</summary>
+GLOBAL __FoxPrinterCol := 0 AS LONG
 
 /// <include file="VFPDocs.xml" path="Runtimefunctions/aprinters/*" />
+[FoxArrayInputParameter(1)];
 [FoxProFunction("APRINTERS", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.Medium)];
-FUNCTION APrinters( ArrayName , nValue ) AS INT CLIPPER
+FUNCTION APrinters( ArrayName AS USUAL, nValue := 0 AS INT ) AS INT
     LOCAL aPrintersFromService AS ARRAY
     LOCAL nRows AS DWORD
     LOCAL nCols AS DWORD
 
-    Default(@nValue, 0)
-    nCols := (DWORD)IIF((INT)nValue > 0, 5, 2)
-    aPrintersFromService := VfpUIService.Provider:GetPrinters((INT)nValue)
+    nCols := (DWORD)IIF(nValue > 0, 5, 2)
+    aPrintersFromService := VfpUIService.Provider:GetPrinters(nValue)
+
     nRows := XSharp.VFP.Functions.ALen((__FoxArray)aPrintersFromService, 1)
 
     IF nRows > 0
@@ -28,7 +35,21 @@ FUNCTION APrinters( ArrayName , nValue ) AS INT CLIPPER
                 faDest[i, j] := faSrc[i, j]
             NEXT
         NEXT
+    ELSE
+        IF ArrayName IS __FoxArray VAR faDest
+            faDest:ReDim(0, 0)
+        ENDIF
     ENDIF
 
     RETURN (INT)nRows
 ENDFUNC
+
+/// <include file="VFPDocs.xml" path="Runtimefunctions/pcol/*" />
+[FoxProFunction("PCOL", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.Low)];
+FUNCTION PCol() AS LONG
+    RETURN __FoxPrinterRow
+
+/// <include file="VFPDocs.xml" path="Runtimefunctions/prow/*" />
+[FoxProFunction("PROW", FoxFunctionCategory.EnvironmentAndSystem, FoxEngine.RuntimeCore, FoxFunctionStatus.Full, FoxCriticality.Low)];
+FUNCTION PRow() AS LONG
+    RETURN __FoxPrinterCol

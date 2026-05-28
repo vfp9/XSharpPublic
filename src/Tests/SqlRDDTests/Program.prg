@@ -29,7 +29,7 @@ function Start as void
 //     TestParametersODBC()
 //     TestParametersSQL()
 //     TestParametersOLEDB()
-    TestTable()
+    //TestTable()
     //TestCreateIndex()
     //TestServerFilter()
     //TestTableRecno()
@@ -37,6 +37,7 @@ function Start as void
     //testCreate()
     //FillGsTutor()
     //TestGsTutor()
+    TestLock()
     wait
     return
 
@@ -596,8 +597,6 @@ FUNCTION EventHandler(oSender AS Object, e AS XSharp.RDD.SqlRDD.SqlRddEventArgs)
         case "Index:Customers"
             e:Value := "PK,CompanyName,ContactName,Address"
         end switch
-     case SqlRDDEventReason.SeekReturnsSubset
-         e:Value := TRUE
     end switch
     if showEvents
         ? "Event", e:Name, e:Reason:ToString(), e:Value
@@ -872,6 +871,29 @@ FUNCTION TestGsTutor() AS VOID
         ? e:ToString()
     END TRY
     RETURN
+
+    function TestLock() as void
+        SqlDbSetProvider("SQLSERVER")
+        var handle := SqlDbOpenConnection(SqlConnStr)
+        var conn   := SqlDbGetConnection(handle)
+        conn:MetadataProvider := SqlMetaDataProviderDatabase{conn}
+        conn:CallBack += @@EventHandler
+        ? handle
+        VoDbUseArea(true, "SQLRDD","Customers","Customers",true, false)
+        DbGoTo(3)
+        DbRLock()
+        FieldPut(2, "New Company1")
+        //DbCommit()
+
+        System.Console.ReadLine()
+
+        // PUBLIC VIRTUAL METHOD RecordInfo(kRecInfoType, nRecordNumber, uRecVal) AS USUAL CLIPPER
+        //var test := DbRecordInfo(DBRI_LOCKED, 3)
+
+//         DbRLock(4)
+//         DbFlock()
+//         DbUnlock(3)
+        //conn:Clode()
 
 
 

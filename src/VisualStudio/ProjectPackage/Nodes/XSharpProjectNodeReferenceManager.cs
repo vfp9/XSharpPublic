@@ -160,8 +160,24 @@ namespace XSharp.Project
             {
                 var newReference = context.CreateReference() as IVsProjectReference;
                 newReference.FullPath = reference.Url;
-                newReference.Identity = reference.ReferencedProjectGuid.ToString("B");
-                newReference.ReferenceSpecification= reference.ReferencedProjectGuid.ToString();
+#if DEV17
+                if (reference is XSharpSDKProjectReferenceNode sdkprj)
+                {
+                    var props = sdkprj.ReferenceProperties;
+                    newReference.Name = props.Name;
+                    newReference.Identity = props.Guid;
+                    if (!string.IsNullOrEmpty(props.ReferenceSpecification))
+                    {
+                        newReference.ReferenceSpecification = props.ReferenceSpecification;
+                    }
+                }
+                else
+#endif
+                {
+                    newReference.Name = reference.Caption;
+                    newReference.Identity = reference.ReferencedProjectGuid.ToString("B");
+                }
+                //newReference.ReferenceSpecification= reference.ReferencedProjectGuid.ToString();
                 newReference.AlreadyReferenced = true;
                 context.AddReference(newReference);
             }
@@ -388,7 +404,7 @@ namespace XSharp.Project
                 return "Assembly files|*.dll|All Files (*.*)|*.*";
             }
         }
-  
-        #endregion
+
+#endregion
     }
 }

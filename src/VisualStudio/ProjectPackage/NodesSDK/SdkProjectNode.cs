@@ -18,6 +18,8 @@ using XSharpModel;
 
 using MSBuild = Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
+using System.Xml;
+using System.IO;
 
 namespace XSharp.Project
 {
@@ -77,6 +79,15 @@ namespace XSharp.Project
             }
         }
 
+        private OAXSharpSdkProject _automationObject;
+        public override object GetAutomationObject()
+        {
+            if (_automationObject == null)
+                _automationObject = new OAXSharpSdkProject(this);
+            return _automationObject;
+        }
+
+
         public override void OnItemAdded(HierarchyNode parent, HierarchyNode child)
         {
             base.OnItemAdded(parent, child);
@@ -94,7 +105,6 @@ namespace XSharp.Project
                         this.BuildProject.RemoveItem(item);
                     }
                 }
-
             }
         }
         public override void OnItemDeleted()
@@ -103,20 +113,9 @@ namespace XSharp.Project
             this.BuildProject.ReevaluateIfNecessary();
         }
 
-        protected override void ProcessReferences()
+         protected override void ProcessReferences()
         {
             base.ProcessReferences();
-            //var container = this.GetReferenceContainer();
-            //if (container is XSharpReferenceContainerNode node)
-            //{
-            //    var list = new List<XSharpAssemblyReferenceNode>();
-            //    node.FindNodesOfType(list);
-            //    foreach (var reference in list)
-            //    {
-            //        if (reference.Parent.Caption != "Assemblies")
-            //            reference.Parent.RemoveChild(reference);
-            //    }
-            //}
             RefreshReferences();
         }
 
@@ -172,7 +171,6 @@ namespace XSharp.Project
             string frameworks = null;
             bool single = false;
             bool mustSwitch = false;
-            this.CreateUserBuildProject();
             _targetFrameworks.Clear();
             _subProjects.Clear();
             // First check for single TargetFramework
@@ -247,6 +245,7 @@ namespace XSharp.Project
                     ActiveSubProject = subProject;
                     return frameworks + ";" + oldframework;
                 }
+                this.BeforeSave();
                 this.BuildProject.Save();
                 SelectSubProject(ActiveSubProject);
             }
@@ -271,8 +270,11 @@ namespace XSharp.Project
             }
             if (newBuildProject.IsDirty)
             {
+                this.BeforeSave();
                 newBuildProject.Save();
             }
+
+
         }
 
         private void SaveTargetFrameworks()
@@ -301,14 +303,7 @@ namespace XSharp.Project
             SetProjectProperty(XSharpProjectFileConstants.TargetFramework, _targetFrameworks[0]);
         }
 
-        List<ProjectItemInstance> sdkReferences = new List<ProjectItemInstance>();
-        protected override List<ProjectItemInstance> RefreshReferences()
-        {
-            var refs = base.RefreshReferences();
-            var sdkrefs = base._sdkReferences;
-            AddPendingReferences(sdkrefs, this.ActiveSubProject);
-            return refs;
-        }
+        List<string> sdkReferences = new List<string>();
 
         internal bool IsNetCoreApp
         {
@@ -333,11 +328,152 @@ namespace XSharp.Project
             return dependenciesNode;
         }
 
-        public override int Close()
+        /// <summary>
+        /// Return list of guids of property pages that are independent of the configuration
+        /// </summary>
+        /// <returns>List of pages GUIDs.</returns>
+        protected override Guid[] GetConfigurationIndependentPropertyPages()
         {
-            this.SaveTargetFrameworks();
-            this.Clean();
-            return base.Close();
+            return new Guid[]
+            {
+                typeof(XSharpGeneralPropertyPage).GUID,
+                typeof(XSharpLanguagePropertyPage).GUID,
+                typeof(XSharpDialectPropertyPage).GUID,
+                typeof(XSharpPackagePropertyPage).GUID,
+                typeof(XSharpGlobalUsingsPropertiesPage).GUID
+            };
+        }
+
+        protected override BuildSubmission DoMSBuildSubmission(BuildKind buildKind, string target, ref ProjectInstance projectInstance, MSBuildCoda uiThreadCallback)
+        {
+            var result = base.DoMSBuildSubmission(buildKind, target, ref projectInstance, uiThreadCallback);
+            ProcessOptions(projectInstance, target);
+            return result;
+        }
+        private List<string> _commandLineArguments = new List<string>();
+        protected List<string> _sdkReferences = new List<string>();
+        protected List<string> _allReferenceAssemblies = new List<string>();
+        void ProcessOptions(ProjectInstance projectInstance, string target)
+        {
+            Logger.Information($"Build:  Invocation Result for target '{target}'");
+            if (projectInstance != null)
+            {
+                var commandLineArguments = new List<string>();
+                var sdkReferences = new List<string>();
+                var allReferenceAssemblies = new List<string>();
+                //Logger.Information($"Build:  Properties for projectInstance {projectInstance.FullPath}");
+                //foreach (var item in projectInstance.Properties)
+                //{
+                //    Logger.Information($"Prop: {item.Name} {item.EvaluatedValue}");
+                //}
+                Logger.Information($"Build:  Items for projectInstance {projectInstance.FullPath}");
+                var items = projectInstance.Items.ToArray();
+                foreach (var item in items)
+                {
+                    var file = item.EvaluatedInclude.Replace("/", "\\"); ;
+                    switch (item.ItemType.ToLower())
+                    {
+                        case "_explicitreference":
+                        case "reference":
+                            if (System.IO.File.Exists(file))
+                                allReferenceAssemblies.AddUnique(file);
+                            break;
+                        case "referencepath":
+                            if (System.IO.File.Exists(file))
+                                allReferenceAssemblies.AddUnique(file);
+                            if (item.GetMetadataValue("NugetSourceType")?.ToLower() == "package")
+                            {
+                                Logger.Information($"Item: Package{item.ItemType} {file}");
+                                continue;
+                            }
+                            if (item.HasMetadata("FrameworkReferenceName"))
+                                sdkReferences.AddUnique(file);
+                            break;
+                        case "xsccommandlineargs":
+                            commandLineArguments.AddUnique(item.EvaluatedInclude);
+                            break;
+                        case "resolvedframeworkreference":
+                            break;
+                        default:
+                            continue;
+                    }
+
+                    Logger.Information($"Item: {item.ItemType} {item.EvaluatedInclude}");
+                }
+                if (commandLineArguments.Count > 0)
+                {
+                    _commandLineArguments = commandLineArguments;
+                }
+                if (sdkReferences.Count > 0)
+                {
+                    _sdkReferences = sdkReferences;
+                }
+                if (allReferenceAssemblies.Count > 0)
+                {
+                    _allReferenceAssemblies = allReferenceAssemblies;
+                }
+
+            }
+        }
+
+        protected override List<string> RefreshReferences()
+        {
+            // find the resource file and read the lines with /reference
+            List<string> references;
+            references = new List<string>();
+            references.AddRange(_allReferenceAssemblies);
+            var sdkrefs = _sdkReferences;
+            AddPendingReferences(sdkrefs, this.ActiveSubProject);
+
+            var rsprefs = base.RefreshReferencesFromResponseFile();
+            foreach ( var reference in rsprefs)
+            {
+                references.AddUnique(reference);
+            }
+            ProjectModel.RefreshReferences(references);
+            return references;
+        }
+
+        public override ProjectOptions GetProjectOptions(ConfigCanonicalName configCanonicalName)
+        {
+            XSharpProjectOptions xoptions;
+            if (this.options != null)
+            {
+                xoptions = this.options as XSharpProjectOptions;
+                if (xoptions.ConfigCanonicalName != configCanonicalName)
+                {
+                    InvalidateOptions();
+                }
+            }
+            options = base.GetProjectOptions(configCanonicalName);
+            xoptions = this.options as XSharpProjectOptions;
+            xoptions.ConfigCanonicalName = configCanonicalName;
+            foreach (var cmd in _commandLineArguments)
+            {
+                if (cmd.StartsWith("/define:"))
+                {
+                    xoptions.DefinedPreprocessorSymbols.Clear();
+                    var constants = cmd.Substring(8);
+
+                    foreach (string s in constants.Replace(" \t\r\n", "").Split(';'))
+                    {
+                        options.DefinedPreprocessorSymbols.Add(s);
+                    }
+                }
+                xoptions.BuildCommandLine();
+            }
+            return this.options;
+        }
+
+        public override int Save(string fileToBeSaved, int remember, uint formatIndex)
+        {
+            var nodes = GetSdkProjectReferences();
+            var result = base.Save(fileToBeSaved, remember, formatIndex);
+            foreach (var node in nodes)
+            {
+                node.RestoreProperties();
+            }
+            return result;
         }
 
         void Clean()
@@ -350,9 +486,16 @@ namespace XSharp.Project
                 if (!(node is XSharpSdkFolderNode) && node.ItemNode != null
                     && node.ItemNode.Item != null)
                 {
+                    try
+                    {
                     this.BuildProject.RemoveItem(node.ItemNode.Item);
                     Logger.Information($"Removed folder node {node.Caption} from project {this.Caption}");
                     dirty = true;
+                    }
+                    catch
+                    {
+
+                    }
                 }
             }
             if (this.GetProjectProperty(ProjectFileConstants.ProjectGuid) != null)
@@ -361,20 +504,18 @@ namespace XSharp.Project
                 this.RemoveProjectProperty(ProjectFileConstants.ProjectGuid);
             }
             if (this.BuildProject.IsDirty || dirty)
+            {
                 this.BuildProject.Save();
+            }
         }
-
-
-        // Do not store FolderNodes in SDK projects
-        public override int Save(string fileToBeSaved, int remember, uint formatIndex)
+        public override void BeforeSave()
         {
-            var dirty = this.IsProjectFileDirty;
+            base.BeforeSave();
+            this.SaveTargetFrameworks();
             this.Clean();
-            this.SetProjectFileDirty(dirty);
-            return base.Save(fileToBeSaved, remember, formatIndex);
         }
 
-        private void AddPendingReferences(List<ProjectItemInstance> newReferences, SdkSubProjectInfo active)
+        private void AddPendingReferences(List<string> newReferences, SdkSubProjectInfo active)
         {
             HierarchyNode frameworkNode = null;
             if (SubProjects.Count > 1)
@@ -394,20 +535,20 @@ namespace XSharp.Project
             // Check if existing reference needs to be removed
             foreach (var reference in sdkReferences)
             {
-                var name = reference.EvaluatedInclude;
-                if (newReferences.Find(r => string.Equals(r.EvaluatedInclude, name, StringComparison.OrdinalIgnoreCase)) != null)
+                var name = reference;
+                if (newReferences.Find(r => string.Equals(r, name, StringComparison.OrdinalIgnoreCase)) != null)
                 {
-                    var oldnode = nodes.Find(n => n.Url.ToLower() == reference.EvaluatedInclude.ToLower());
+                    var oldnode = nodes.Find(n => n.Url.ToLower() == reference.ToLower());
                     toDelete.Add(oldnode);
                 }
             }
             // add dependencies from the TargetFramework
             foreach (var reference in newReferences)
             {
-                var name = reference.EvaluatedInclude.ToLower();
-                if (sdkReferences.Find( r => r.EvaluatedInclude.ToLower() == name) == null)
+                var name = reference.ToLower();
+                if (sdkReferences.Find( r => r.ToLower() == name) == null)
                 {
-                    toAdd.Add(reference.EvaluatedInclude);
+                    toAdd.Add(reference);
                 }
             }
             // delete nodes that are no longer needed

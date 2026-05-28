@@ -925,9 +925,10 @@ namespace Microsoft.VisualStudio.Project
         {
             get
             {
-                return this.Node.ProjectMgr.ProjectFolder;
+                return this.Node.ProjectMgr.ProjectFolder+System.IO.Path.DirectorySeparatorChar.ToString();
             }
         }
+
 
         [SRCategoryAttribute(SR.Misc)]
         [LocDisplayName(SR.ProjectFile)]
@@ -985,20 +986,16 @@ namespace Microsoft.VisualStudio.Project
             }
         }
 
-        [Browsable(false)]
+        [SRCategoryAttribute(SR.Misc)]
+        [LocDisplayName(SR.FullPath)]
+        [SRDescriptionAttribute(SR.FullPathDescription)]
+        [AutomationBrowsable(false)]
         public string FullPath
         {
             get
             {
-                string fullPath = this.Node.ProjectMgr.ProjectFolder;
-                if(!fullPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
-                {
-                    return fullPath + Path.DirectorySeparatorChar;
-                }
-                else
-                {
-                    return fullPath;
-                }
+                var prj = this.Node.ProjectMgr;
+                return System.IO.Path.Combine(prj.ProjectFolder, prj.ProjectFile);
             }
         }
         #endregion
@@ -1114,7 +1111,7 @@ namespace Microsoft.VisualStudio.Project
                 string relativePath = project.GetRelativePath(this.Node.Url);
                 if (relativePath.EndsWith("\\"))
                     relativePath = relativePath.Substring(0, relativePath.Length - 1);
-                var result = parentName + "." + relativePath.Replace('\\', '.'); 
+                var result = parentName + "." + relativePath.Replace('\\', '.');
                 if (!project.WizardIsRunning)
                 {
                     result = "global::" + result;
@@ -1274,10 +1271,10 @@ namespace Microsoft.VisualStudio.Project
             {
                 return this.Node.Caption;
             }
-            set
-            {
-                this.Node.SetEditLabel(value);
-            }
+            //set
+            //{
+            //    this.Node.SetEditLabel(value);
+            //}
         }
         #endregion
 
