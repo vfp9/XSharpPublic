@@ -405,7 +405,7 @@ namespace XSharp.Project
         /// <summary>Gets the localized label for the Use Shared Compilation checkbox.</summary>
         public string CaptUseSharedCompilation      => BuildPropertyPagePanel.captUseSharedCompilation;
         /// <summary>Gets the localized label for the Prefer 32-bit checkbox.</summary>
-        public string CaptPrefer32Bit               => BuildPropertyPagePanel.captPrefer32Bit;
+        public string CaptPrefer32Bit               => BuildPropertyPagePanel.captPrefer32Bit.Trim();
         /// <summary>Gets the localized label for the Register for COM Interop checkbox.</summary>
         public string CaptRegisterForComInterop     => BuildPropertyPagePanel.captRegisterForComInterop;
         /// <summary>Gets the localized label for the XML Documentation File checkbox.</summary>
