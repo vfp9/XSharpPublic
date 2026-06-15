@@ -1001,6 +1001,8 @@ namespace Microsoft.VisualStudio.Project
             }
         }
 
+        public virtual bool IsSdkProject => false;
+
         /// <summary>
         /// Gets an ImageHandler for the project node.
         /// </summary>

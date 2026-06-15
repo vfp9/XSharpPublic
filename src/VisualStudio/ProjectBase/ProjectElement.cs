@@ -355,7 +355,7 @@ namespace Microsoft.VisualStudio.Project
             if(this.IsVirtual)
                 return;
 
-            bool isSdk = itemProject.BuildProject.Xml.Sdk != null;
+            bool isSdk = !string.IsNullOrEmpty(itemProject?.BuildProject?.Xml?.Sdk);
             if (!isSdk)
             {
 				// prevent duplicate items.

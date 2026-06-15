@@ -390,7 +390,7 @@ namespace Microsoft.VisualStudio.Project
             ThreadHelper.ThrowIfNotOnUIThread();
 
             this.ReferencedProjectName = this.ItemNode.GetMetadata(ProjectFileConstants.Name);
-            if (guidString == String.Empty && ! root.IsSdkStyleProject())
+            if (guidString == String.Empty && ! root.IsSdkProject)
             {
                 guidString = Guid.NewGuid().ToString("B");
             }

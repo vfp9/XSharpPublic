@@ -2465,7 +2465,6 @@ namespace XSharp.Project
                 xoptions.BuildCommandLine();
             }
         }
-        public virtual bool IsSdkProject => false;
         internal XParseOptions CachedOptions;
         public XParseOptions ParseOptions
         {
@@ -2589,14 +2588,14 @@ namespace XSharp.Project
                 File.WriteAllText(Url, changedSource);
                 ok = false;
             }
+            if (ok && this.IsSdkProject)
+            {
+                // do not touch SDK style projects !
+                return VSConstants.S_OK;
+            }
             StringWriter backup = new StringWriter();
             BuildProject.Save(backup);
             var str = backup.ToString();
-            // do not touch SDK style projects !
-            if (str.IndexOf("<Project Sdk=", StringComparison.OrdinalIgnoreCase) > 0)
-            {
-                return VSConstants.S_OK;
-            }
             var str2 = str.ReplaceEx(XSharpProjectFileConstants.AnyCPU, XSharpProjectFileConstants.AnyCPU, StringComparison.OrdinalIgnoreCase);
             if (str2 != str)
             {
