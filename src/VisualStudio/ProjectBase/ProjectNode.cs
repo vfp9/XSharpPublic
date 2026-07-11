@@ -18,6 +18,7 @@ using Microsoft.Build.Execution;
 using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Project;
 
 using System;
 using System.CodeDom.Compiler;
@@ -532,7 +533,7 @@ namespace Microsoft.VisualStudio.Project
         /// <summary>
         /// The build dependency list passed to IVsDependencyProvider::EnumDependencies
         /// </summary>
-        private List<IVsBuildDependency> buildDependencyList = new List<IVsBuildDependency>();
+        //private List<IVsBuildDependency> buildDependencyList = new List<IVsBuildDependency>();
 
         /// <summary>
         /// Defines if Project System supports Project Designer
@@ -707,9 +708,17 @@ namespace Microsoft.VisualStudio.Project
             {
                 if (this.projectIdGuid != value)
                 {
+					// also update saved projectInfo
+                    var projectInfo = ProjectInfo.GetProjectInfo(this.Url,this.projectIdGuid);
+
                     this.projectIdGuid = value;
                     if (!virtualProjectGuid)
                         SetProjectProperty(ProjectFileConstants.ProjectGuid, this.projectIdGuid.ToString("B"));
+                    if (projectInfo != null)
+                    {
+                        ProjectInfo.Remove(projectInfo);
+                    }
+                    projectInfo = new ProjectInfo(value, this.Url);
                 }
             }
         }
@@ -991,6 +1000,8 @@ namespace Microsoft.VisualStudio.Project
                 return this.site;
             }
         }
+
+        public virtual bool IsSdkProject => false;
 
         /// <summary>
         /// Gets an ImageHandler for the project node.
@@ -1474,6 +1485,7 @@ namespace Microsoft.VisualStudio.Project
             switch (id)
             {
                 case __VSHPROPID.VSHPROPID_ShowProjInSolutionPage:
+                    Logger.Information(String.Format(CultureInfo.CurrentCulture, "Setting ShowProjInSolutionPage to {0} for project {1}", value, this.Caption));
                     this.ShowProjectInSolutionPage = (bool)value;
                     return VSConstants.S_OK;
             }
@@ -1556,6 +1568,8 @@ namespace Microsoft.VisualStudio.Project
         {
             int hr = VSConstants.S_OK;
             ThreadHelper.ThrowIfNotOnUIThread();
+            // remove cached project info
+            ProjectInfo.RemoveProjectInfo(this.Url, this.ProjectIDGuid);
             if (!this.isClosed)
             {
                 try
@@ -1635,6 +1649,7 @@ namespace Microsoft.VisualStudio.Project
                     return this.ProjectType;
 
                 case __VSHPROPID.VSHPROPID_ShowProjInSolutionPage:
+                    Logger.Information(String.Format(CultureInfo.CurrentCulture, "Getting ShowProjInSolutionPage for project {0}: {1}", this.Caption, this.ShowProjectInSolutionPage));
                     return this.ShowProjectInSolutionPage;
 
                 case __VSHPROPID.VSHPROPID_ExpandByDefault:
@@ -3416,16 +3431,19 @@ namespace Microsoft.VisualStudio.Project
                         // TODO: Handle source control issues.
                         Utilities.DeleteFileSafe(oldFile);
                     }
-
                     this.OnPropertyChanged(this, (int)__VSHPROPID.VSHPROPID_Caption, 0);
 
                     // Update solution
                     ErrorHandler.ThrowOnFailure(vsSolution.OnAfterRenameProject(this, oldFile, newFile, 0));
 
                     ErrorHandler.ThrowOnFailure(shell.RefreshPropertyBrowser(0));
+					// update saved projectInfo
+                    var projectInfo = ProjectInfo.GetProjectInfo(oldFile, this.ProjectIDGuid);
+                    ProjectInfo.Remove(projectInfo);
                 }
                 finally
                 {
+                    var projectInfo = new ProjectInfo(this.ProjectIDGuid, newFile);
                     fileChanges.Resume();
                 }
             }
@@ -3671,7 +3689,6 @@ namespace Microsoft.VisualStudio.Project
                         {
                             ThreadUtilities.runSafe(() =>
                             {
-                                this.FlushBuildLoggerContent();
                                 EndBuild(sub, designTime);
                                 uiThreadCallback((sub.BuildResult.OverallResult == BuildResultCode.Success) ? MSBuildResult.Successful : MSBuildResult.Failed, projectInstanceCopy);
                             });
@@ -4517,10 +4534,10 @@ namespace Microsoft.VisualStudio.Project
         /// This method is called as part of the callback method passed to the buildsubmission during async build
         /// so that results can be printed the the build is finished.
         /// </summary>
-        protected virtual void FlushBuildLoggerContent()
+        protected internal virtual void WriteBuildResults()
         {
             var logger = (IDEBuildLogger)BuildLogger;
-            logger.FlushBuildOutput();
+            logger.WriteBuildResults();
         }
         #endregion
 
@@ -6451,7 +6468,9 @@ namespace Microsoft.VisualStudio.Project
         #region IVsDependencyProvider Members
         public int EnumDependencies(out IVsEnumDependencies enumDependencies)
         {
-            enumDependencies = new EnumDependencies(this.buildDependencyList);
+            var list = new List<IVsDependency>();
+            list.AddRange(this.BuildDependencies);
+            enumDependencies = new EnumDependencies(list);
             return VSConstants.S_OK;
         }
 
@@ -6672,34 +6691,34 @@ namespace Microsoft.VisualStudio.Project
         {
             get
             {
-                return this.buildDependencyList.ToArray();
+                var list = new List<IVsBuildDependency>();
+                var nodes = new List<ProjectReferenceNode>();
+                FindNodesOfType(nodes);
+                Logger.Information($"Creating BuildDependencies for project {this.Caption}, found {nodes.Count} nodes");
+                foreach (var node in nodes)
+                {
+                    var url = node.Url;
+                    var projectInfo = ProjectInfo.GetProjectInfo(url);
+                    if (projectInfo == null)
+                    {
+                        projectInfo = new ProjectInfo(node.ReferencedProjectGuid, url);
+                    }
+                    var dependency = new BuildDependency(this, projectInfo.Id);
+                    Logger.Information($"Adding BuildDependency for project {this.Caption} on {url} with id {projectInfo.Id}");
+                    list.Add(dependency);
+                }
+                return list.ToArray();
             }
         }
 
-        public virtual void AddBuildDependency(IVsBuildDependency dependency)
+        public virtual void AddBuildDependency(IVsBuildDependency _)
         {
-            if (this.isClosed || dependency == null)
-            {
-                return;
-            }
-
-            if (!this.buildDependencyList.Contains(dependency))
-            {
-                this.buildDependencyList.Add(dependency);
-            }
+            // we build the list when needed to make sure we have the right guids
         }
 
-        public virtual void RemoveBuildDependency(IVsBuildDependency dependency)
+        public virtual void RemoveBuildDependency(IVsBuildDependency _)
         {
-            if (this.isClosed || dependency == null)
-            {
-                return;
-            }
-
-            if (this.buildDependencyList.Contains(dependency))
-            {
-                this.buildDependencyList.Remove(dependency);
-            }
+            // we build the list when needed to make sure we have the right guids
         }
 
         #endregion
@@ -7232,7 +7251,8 @@ namespace Microsoft.VisualStudio.Project
         }
 
         /// <summary>
-        /// Sets the project guid from the project file. If no guid is found a new one is created and assigne for the instance project guid.
+        /// Sets the project guid from the project file. If no guid is found a new one is created and
+        /// assigned for the instance project guid.
         /// </summary>
         protected void SetProjectGuidFromProjectFile()
         {
@@ -7257,7 +7277,6 @@ namespace Microsoft.VisualStudio.Project
                             Logger.Information($"Removed project Guid from project {Caption}");
                             this.BuildProject.RemoveProperty(prop);
                         }
-
                     }
                     else
                     {

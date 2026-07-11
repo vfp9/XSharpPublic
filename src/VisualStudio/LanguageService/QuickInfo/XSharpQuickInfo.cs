@@ -219,13 +219,33 @@ namespace XSharp.LanguageService
 
             public IAsyncQuickInfoSource TryCreateQuickInfoSource(ITextBuffer textBuffer)
             {
+                // VS 2022 17.8+ requires strict content type validation
+                if (textBuffer?.ContentType == null)
+                {
+                    return null;
+                }
+
+                // Check if content type is XSharp or derives from it
+                bool isXSharpContent = textBuffer.ContentType.IsOfType(XSharpConstants.LanguageName);
+
+                if (!isXSharpContent)
+                {
+                    return null;
+                }
+
+
                 var file = textBuffer.GetFile();
                 if (file == null || file.XFileType != XFileType.SourceCode)
+                {
                     return null;
-                return new XSharpQuickInfoSource(textBuffer);
+                }
+
+                // Use GetOrCreateSingletonProperty to ensure only one instance per buffer
+                var source = textBuffer.Properties.GetOrCreateSingletonProperty(
+                    () => new XSharpQuickInfoSource(textBuffer));
+
+                return source;
             }
-
-
         }
         internal class QuickInfoBase
         {

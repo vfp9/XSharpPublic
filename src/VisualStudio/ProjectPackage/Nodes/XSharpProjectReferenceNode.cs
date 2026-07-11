@@ -3,17 +3,22 @@
 // Licensed under the Apache License, Version 2.0.
 // See License.txt in the project root for license information.
 //
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.Imaging.Interop;
+using Microsoft.VisualStudio.Project;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+
 using System;
 using System.Collections.Generic;
-using System.IO;
-using Microsoft.VisualStudio.Project;
-using Microsoft.VisualStudio.Shell.Interop;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio;
 using System.Diagnostics;
-using Microsoft.VisualStudio.Imaging.Interop;
-using Microsoft.VisualStudio.Imaging;
+using System.IO;
+using System.Xml.Linq;
 
+using XSharp.Settings;
+
+using CVT = Community.VisualStudio.Toolkit;
 namespace XSharp.Project
 {
     /// <summary>
@@ -56,7 +61,6 @@ namespace XSharp.Project
                 return base.Caption;
             }
         }
-
         protected override ImageMoniker GetIconMoniker(bool open) => KnownMonikers.Library;
         private void AddProject()
         {

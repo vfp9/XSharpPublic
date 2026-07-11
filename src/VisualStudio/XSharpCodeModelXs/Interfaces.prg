@@ -10,6 +10,9 @@ NAMESPACE XSharpModel
 INTERFACE IXSharpProject
     METHOD AddFileNode(fileName AS STRING) AS VOID
     METHOD DeleteFileNode(fileName AS STRING) AS VOID
+    METHOD ClearIntellisenseErrors(fileName AS STRING) AS VOID
+    METHOD GetIntellisenseErrors(filename as string) as List<IXErrorPosition>
+    METHOD AddIntellisenseError(error as XError) AS VOID
     /// <summary>
     /// Return the EnvDte project for a url
     /// </summary>
@@ -41,6 +44,7 @@ INTERFACE ILogger
     METHOD SingleLine() AS VOID STRICT
     METHOD DoubleLine() AS VOID STRICT
     METHOD Exception (e as Exception, sMsg as STRING) AS VOID
+    METHOD Error(sMsg as STRING) AS VOID
 
     PROPERTY Active as LOGIC GET
 END INTERFACE
@@ -60,7 +64,7 @@ INTERFACE IXVsShellLink
     METHOD ClearIntellisenseErrors(file AS STRING) AS VOID
     METHOD SynchronizeKeywordCase(code AS STRING, fileName as string) AS STRING
     METHOD RunInForeGroundThread( a as Action) AS VOID
-    METHOD FindProject(sUrl AS STRING) AS Object
+    METHOD FindVsProject(sUrl AS STRING) AS Object
 
 END INTERFACE
 

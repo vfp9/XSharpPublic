@@ -390,7 +390,7 @@ namespace Microsoft.VisualStudio.Project
             ThreadHelper.ThrowIfNotOnUIThread();
 
             this.ReferencedProjectName = this.ItemNode.GetMetadata(ProjectFileConstants.Name);
-            if (guidString == String.Empty && ! root.IsSdkStyleProject())
+            if (guidString == String.Empty && ! root.IsSdkProject)
             {
                 guidString = Guid.NewGuid().ToString("B");
             }
@@ -578,7 +578,7 @@ namespace Microsoft.VisualStudio.Project
                         result = true;
                         break;
                     }
-                    
+
                 }
 
             });
@@ -677,6 +677,7 @@ namespace Microsoft.VisualStudio.Project
             int circular;
             Marshal.ThrowExceptionForHR(solutionBuildManager.CalculateProjectDependencies());
             Marshal.ThrowExceptionForHR(solutionBuildManager.QueryProjectDependency(referencedHierarchy, this.ProjectMgr, out circular));
+            Logger.Information($"IsReferenceInCycle: QueryProjectDependency for project reference {projectGuid} returned circular={circular}");
 
             return circular != 0;
         }
@@ -724,6 +725,7 @@ namespace Microsoft.VisualStudio.Project
             return VSConstants.S_OK;
         }
         #endregion
+
     }
 
 }

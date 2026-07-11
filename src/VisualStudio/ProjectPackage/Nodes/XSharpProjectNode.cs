@@ -4,6 +4,7 @@
 // See License.txt in the project root for license information.
 //
 using Community.VisualStudio.Toolkit;
+using CVT=Community.VisualStudio.Toolkit;
 
 using EnvDTE;
 
@@ -59,13 +60,11 @@ namespace XSharp.Project
         {
             lock (nodes)
             {
-                var file = System.IO.Path.GetFileName(url);
+                if (!Path.IsPathRooted(url))
+                    return null;
                 foreach (var proj in nodes)
                 {
-                    if (string.Compare(proj.FileName, url, true) == 0)
-                        return proj;
-                    var pFile = System.IO.Path.GetFileName(proj.FileName);
-                    if (string.Compare(pFile, url, true) == 0)
+                    if (string.Compare(proj.Url, url, true) == 0)
                         return proj;
                 }
             }
@@ -1312,26 +1311,32 @@ namespace XSharp.Project
                 }
             }
         }
-        public override int AddProjectReference()
+        public virtual Guid[] GetReferencePages()
         {
-            ThreadHelper.ThrowIfNotOnUIThread("AddProjectReference");
+            return new[] {
+                          VSConstants.AssemblyReferenceProvider_Guid,
+                          VSConstants.ProjectReferenceProvider_Guid,
+                          VSConstants.ComReferenceProvider_Guid,
+                          VSConstants.FileReferenceProvider_Guid,
+                    };
+        }
+
+        public virtual int AddReference(Guid guidPage)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread("AddReference");
             var referenceManager = this.GetService(typeof(SVsReferenceManager)) as IVsReferenceManager;
             if (referenceManager != null)
             {
                 string title = $"Reference Manager - {this.Caption}";
-                var contextGuids = new[] {
-                          VSConstants.AssemblyReferenceProvider_Guid,
-                          VSConstants.ProjectReferenceProvider_Guid,
-                          //VSConstants.SharedProjectReferenceProvider_Guid,
-                          VSConstants.ComReferenceProvider_Guid,
-                          VSConstants.FileReferenceProvider_Guid,
-                    };
+                var contextGuids = GetReferencePages();
+                // VSConstants.SharedProjectReferenceProvider_Guid,
+
                 referenceManager.ShowReferenceManager(
                       VsReferenceManager,
                       title,
                       "VS.AddReference",
-                      contextGuids.First(),
-                      fForceShowDefaultProvider: false
+                      guidPage,
+                      fForceShowDefaultProvider: true
                       );
                 return VSConstants.S_OK;
             }
@@ -1339,8 +1344,32 @@ namespace XSharp.Project
             {
                 return VSConstants.E_NOINTERFACE;
             }
+
         }
-        IVsReferenceManagerUser VsReferenceManager => new ProjectNodeReferenceManager(this);
+
+        public virtual int AddAssemblyReference()
+        {
+            return AddReference(VSConstants.AssemblyReferenceProvider_Guid);
+        }
+
+        public override int AddProjectReference()
+        {
+            return AddReference(VSConstants.ProjectReferenceProvider_Guid);
+        }
+        public virtual int AddCOMReference()
+        {
+            return AddReference(VSConstants.ComReferenceProvider_Guid);
+        }
+        public virtual int AddFileReference()
+        {
+            return AddReference(VSConstants.FileReferenceProvider_Guid);
+        }
+        //public virtual int AddSharedReference()
+        //{
+        //    return AddReference(4);
+        //}
+
+        protected virtual IVsReferenceManagerUser VsReferenceManager => new ProjectNodeReferenceManager(this);
 
         internal void LoadPackageReferences()
         {
@@ -1448,20 +1477,36 @@ namespace XSharp.Project
             {
                 if (child is XSharpSDKProjectReferenceNode sdkref)
                 {
+
                     var element = child.ItemNode;
 
                     var path = element.Item.EvaluatedInclude;
-                    path = System.IO.Path.GetFileName(path);
-                    var refnode = FindProject(path);
+                    var completePath = Path.Combine(this.ProjectFolder, path);
+                    completePath = Path.GetFullPath(completePath);
+                    var refnode = FindProject(completePath);
+                    Guid refnodeGuid = Guid.Empty;
+                    string refnodeName = child.Caption;
                     if (refnode == null)
                     {
-                        continue;
+                        // this must be a foreign project reference
+                        var projectInfo = ProjectInfo.GetProjectInfo(completePath);
+                        if (projectInfo == null)
+                        {
+                            if (this.GetProjectGuid(completePath, out refnodeGuid))
+                            {
+                                projectInfo = new ProjectInfo(refnodeGuid, completePath);
+                                element.SetMetadata(ProjectFileConstants.Project, refnodeGuid.ToString("B").ToUpperInvariant());
+                            }
+                        }
+                        else
+                        {
+                            refnodeGuid = projectInfo.Id;
+                        }
                     }
-                    var guid = refnode.ProjectIDGuid;
-                    if (guid != Guid.Empty)
+                    if (refnodeGuid != Guid.Empty)
                     {
-                        element.SetMetadata(ProjectFileConstants.Project, guid.ToString("B").ToUpperInvariant());
-
+                        element.SetMetadata(ProjectFileConstants.Project, refnodeGuid.ToString("B").ToUpperInvariant());
+                        element.SetMetadata(ProjectFileConstants.Name, refnodeName);
                     }
                     else
                     {
@@ -1479,6 +1524,22 @@ namespace XSharp.Project
             return found;
         }
 #endif
+
+        internal bool GetProjectGuid(string url, out  Guid guid)
+        {
+            guid = Guid.Empty;
+            var project = (CVT.Project)XSettings.ShellLink.FindVsProject(url);
+            if (project != null)
+            {
+                project.GetItemInfo(out IVsHierarchy hier, out uint itemId, out IVsHierarchyItem item);
+                if (hier != null)
+                {
+                    hier.GetGuidProperty(itemId, (int)__VSHPROPID.VSHPROPID_ProjectIDGuid, out guid);
+                    return true;
+                }
+            }
+            return false;
+        }
 
         private object CreateServices(Type serviceType)
         {
@@ -1908,6 +1969,23 @@ namespace XSharp.Project
 
 
         #region IXSharpProject Interface
+
+        public void AddIntellisenseError(XError error)
+        {
+            if (_errorListManager != null)
+            {
+                _errorListManager.AddIntellisenseError(error);
+            }
+        }
+
+        public List<IXErrorPosition> GetIntellisenseErrors(string fileName)
+        {
+            if (_errorListManager != null)
+            {
+                return _errorListManager.GetIntellisenseErrors(fileName);
+            }
+            return new List<IXErrorPosition>();
+        }
 
         public string DisplayName => this.Caption;
 
@@ -2387,7 +2465,6 @@ namespace XSharp.Project
                 xoptions.BuildCommandLine();
             }
         }
-        public virtual bool IsSdkProject => false;
         internal XParseOptions CachedOptions;
         public XParseOptions ParseOptions
         {
@@ -2511,14 +2588,14 @@ namespace XSharp.Project
                 File.WriteAllText(Url, changedSource);
                 ok = false;
             }
+            if (ok && this.IsSdkProject)
+            {
+                // do not touch SDK style projects !
+                return VSConstants.S_OK;
+            }
             StringWriter backup = new StringWriter();
             BuildProject.Save(backup);
             var str = backup.ToString();
-            // do not touch SDK style projects !
-            if (str.IndexOf("<Project Sdk=", StringComparison.OrdinalIgnoreCase) > 0)
-            {
-                return VSConstants.S_OK;
-            }
             var str2 = str.ReplaceEx(XSharpProjectFileConstants.AnyCPU, XSharpProjectFileConstants.AnyCPU, StringComparison.OrdinalIgnoreCase);
             if (str2 != str)
             {

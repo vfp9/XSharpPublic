@@ -202,7 +202,7 @@ namespace Microsoft.VisualStudio.Project
             Debug.Assert(String.Compare(attributeName, ProjectFileConstants.Include, StringComparison.OrdinalIgnoreCase) != 0, "Use rename as this won't work");
             if (IsImported)
             {
-                Logger.Debug($"Try to set attribute {attributeName} to value {attributeValue} for Imported item");
+                Logger.Error($"Try to set attribute {attributeName} to value {attributeValue} for Imported item");
                 return;
             }
             if(this.IsVirtual)
@@ -355,7 +355,7 @@ namespace Microsoft.VisualStudio.Project
             if(this.IsVirtual)
                 return;
 
-            bool isSdk = itemProject.BuildProject.Xml.Sdk != null;
+            bool isSdk = !string.IsNullOrEmpty(itemProject?.BuildProject?.Xml?.Sdk);
             if (!isSdk)
             {
 				// prevent duplicate items.

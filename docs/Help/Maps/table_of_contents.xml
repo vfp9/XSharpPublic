@@ -1481,9 +1481,6 @@
           <topicref type="topic" id="449647588802199" build="ALL" modified="2023-02-07T17:45:18.016Z" icon="0" href="command_VAR">
             <caption translate="true">VAR Statement</caption>
           </topicref>
-          <topicref type="topic" id="460032363897568" build="ALL" modified="2025-12-12T10:58:48.878Z" icon="0" href="TUPLE">
-            <caption translate="true">TUPLE type and expression</caption>
-          </topicref>
         </topicref>
       </topicref>
       <topicref type="topic" id="423890338204503" build="ALL" modified="2019-10-15T13:46:32.053Z" icon="0" href="Expressions">

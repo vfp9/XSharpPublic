@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+<PropertyGroup >
+	<MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <XmlDocFolder Condition="'$(Configuration)' == 'Documentation'">$(SolutionDir)Docs\</XmlDocFolder>
+    <XmlDocFolder Condition="'$(Configuration)' == 'DocChinese'">$(SolutionDir)DocChinese\</XmlDocFolder>
+    <XmlDocFolder Condition="'$(Configuration)' == 'DocSpanish'">$(SolutionDir)DocSpanish\</XmlDocFolder>
+    <PreBuildEvent>copy $(XmlDocFolder)*.xml $(ProjectDir) &gt; nul</PreBuildEvent>
+    <PostBuildEvent>erase $(ProjectDir)*.Xml</PostBuildEvent>
+    <RunPostBuildEvent>Allways</RunPostBuildEvent>
+    <DefineConstants>$(DefineConstants);DOCUMENTATION</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(Configuration.Contains('Doc'))">
+    <DocumentationFile>$(AssemblyName).Xml</DocumentationFile>
+    <DefineConstants>$(DefineConstants);DOC</DefineConstants>
+  </PropertyGroup>
+</Project>

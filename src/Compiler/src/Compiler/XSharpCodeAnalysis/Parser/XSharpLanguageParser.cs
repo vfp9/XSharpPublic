@@ -419,7 +419,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                     result.FileWidePublics = treeTransform.GlobalEntities.FileWidePublics;
                     result.HasPCall = treeTransform.GlobalEntities.HasPCall;
-                    result.NeedsProcessing = treeTransform.GlobalEntities.NeedsProcessing;
+                    result.HasPartialType = treeTransform.GlobalEntities.HasPartialType;
                     if (_options.HasRuntime)
                     {
                         result.LiteralSymbols = ((XSharpTreeTransformationRT)treeTransform).LiteralSymbols;
@@ -586,9 +586,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
             if (len <= 0 || pos < 0)
             {
-                if (e.Node.Parent != null)
+                if (e.Node.Parent is not null)
                 {
-                    var xNode = e.Node as IXParseTree;
+                    var xNode = e.Node;
                     pos = xNode.Position;
                     len = xNode.FullWidth;
                 }

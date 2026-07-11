@@ -38,15 +38,12 @@ namespace XSharp.Support
             ThreadHelper.JoinableTaskFactory.Run(async delegate
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                Logger.Information("Initialize XSharpShellLink");
+                // Logger may not be fully initialized yet, so guard against null
+                Logger?.Information("Initialize XSharpShellLink");
 
 
 
-#if LIBRARYMANAGER
 
-                VS.Events.SolutionEvents.OnAfterLoadProject += SolutionEvents_OnAfterLoadProject;
-                VS.Events.SolutionEvents.OnBeforeUnloadProject += SolutionEvents_OnBeforeUnloadProject;
-#endif
                 VS.Events.BuildEvents.SolutionBuildStarted += BuildEvents_SolutionBuildStarted;
                 VS.Events.BuildEvents.SolutionBuildDone += BuildEvents_SolutionBuildDone;
                 VS.Events.BuildEvents.SolutionBuildCancelled += BuildEvents_SolutionBuildCancelled;
@@ -90,44 +87,12 @@ namespace XSharp.Support
                 //VS.Events.DocumentEvents.AfterDocumentWindowHide += DocumentEvents_AfterDocumentWindowHide;
 
 
-                Logger.Information("Initialized XSharpShellLink");
+                Logger?.Information("Initialized XSharpShellLink");
             });
 
 
         }
-#if LIBRARYMANAGER
-        private void SolutionEvents_OnBeforeUnloadProject(Project project)
-        {
 
-            IXSharpLibraryManager libraryManager = VS.GetRequiredService<IXSharpLibraryManager, IXSharpLibraryManager>();
-            if (libraryManager != null)
-            {
-                project.GetItemInfo(out var hier, out var id, out var parent);
-                libraryManager.UnregisterHierarchy(hier);
-            }
-
-        }
-
-        private void SolutionEvents_OnAfterLoadProject(Project project)
-        {
-
-            if (!IsXSharpProject(project.FullPath))
-                return;
-            var framework = "";
-            IXSharpLibraryManager libraryManager = VS.GetRequiredService<IXSharpLibraryManager, IXSharpLibraryManager>();
-            if (libraryManager != null)
-            {
-                project.GetItemInfo(out var hier, out var id, out var parent);
-                var prj = XSolution.FindProject(project.FullPath, framework);
-                if (prj != null)
-                {
-                    libraryManager.RegisterHierarchy(hier, prj, prj.ProjectNode);
-                }
-
-            }
-
-        }
-#endif
         private List<Project> GetProjects(SolutionItem parent)
         {
             var result = new List<Project>();
@@ -246,6 +211,8 @@ namespace XSharp.Support
 
         public bool IsDocumentOpen(string file)
         {
+            if (string.IsNullOrEmpty(file))
+                return false;
             return ThreadHelper.JoinableTaskFactory.Run(async delegate
             {
                 return await VS.Documents.IsOpenAsync(file);
@@ -382,6 +349,7 @@ namespace XSharp.Support
             if (! _projects.ContainsKey(project.FullPath))
             {
                 _projects.TryAdd(project.FullPath, project);
+
             }
         }
 
@@ -485,7 +453,7 @@ namespace XSharp.Support
 
         public ConcurrentDictionary<string, Project> _projects = new ConcurrentDictionary<string, Project>(StringComparer.OrdinalIgnoreCase);
 
-        public object FindProject(string sUrl)
+        public object FindVsProject(string sUrl)
         {
             if (_projects.ContainsKey(sUrl))
                 return _projects[sUrl];

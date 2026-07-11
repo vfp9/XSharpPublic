@@ -964,7 +964,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             context.Put(m);
             if (context.TypeData.Partial)
             {
-                GlobalEntities.NeedsProcessing = true;
+                GlobalEntities.HasPartialType = true;
             }
         }
 
@@ -1123,6 +1123,29 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     ctor = _syntaxFactory.ConstructorDeclaration(attributeLists, mods, id, initparams, chain, body, null, null);
                     ctor.XGenerated = true;
                 }
+            }
+            else
+            {
+                // Subclass without its own INIT: VFP calls the parent's INIT
+                // with all the arguments passed to CREATEOBJECT(). Generate a
+                // Clipper-calling-convention constructor that forwards
+                // _ClipperArgs to the base class constructor, so the parent
+                // INIT receives the arguments instead of getting NIL/empty.
+                ParameterListSyntax pars = GetClipperParameters();
+                var arg = MakeArgument(GenerateSimpleName(XSharpSpecialNames.ClipperArgs));
+                ArgumentListSyntax args = MakeArgumentList(arg);
+                var chain = _syntaxFactory.ConstructorInitializer(SyntaxKind.BaseConstructorInitializer,
+                                                                    SyntaxFactory.ColonToken,
+                                                                    SyntaxFactory.MakeToken(SyntaxKind.BaseKeyword),
+                                                                    args
+                                                                    );
+                var mods = TokenList(SyntaxKind.PublicKeyword);
+                var id = context.Id.Get<SyntaxToken>();
+                GenerateAttributeList(attributeLists, SystemQualifiedNames.CompilerGenerated);
+                attributeLists.Add(MakeClipperCallingConventionAttribute(new List<ExpressionSyntax>()));
+                var body = MakeBlock(stmts);
+                ctor = _syntaxFactory.ConstructorDeclaration(attributeLists, mods, id, pars, chain, body, null, null);
+                ctor.XGenerated = true;
             }
             _pool.Free(attributeLists);
             return ctor;

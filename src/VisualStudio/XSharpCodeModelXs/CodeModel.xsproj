@@ -28,7 +28,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
     <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
-    <NoWarn>1591,219,165</NoWarn>
+    <NoWarn>1591,219,165,NU1903</NoWarn>
     <WarningLevel>4</WarningLevel>
     <DefineConstants>DEBUG</DefineConstants>
     <DocumentationFile>XSharp.CodeModel.Xml</DocumentationFile>
@@ -36,7 +36,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU'">
     <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
-    <NoWarn>1591,219,165</NoWarn>
+    <NoWarn>1591,219,165,NU1903</NoWarn>
     <WarningLevel>4</WarningLevel>
     <DefineConstants>
     </DefineConstants>
@@ -97,6 +97,7 @@
     <Compile Include="Model\ClassGenerator.prg" />
     <Compile Include="Model\CommentTask.prg" />
     <Compile Include="Parser\ParseOptions.prg" />
+    <Compile Include="Parser\SourceWalkerAntlr.prg" />
     <Compile Include="Parser\XSharpTokenList.prg" />
     <Compile Include="PE\XPEEventSymbol.prg" />
     <Compile Include="PE\XPEFieldSymbol.prg" />

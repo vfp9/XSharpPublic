@@ -275,7 +275,12 @@ PARTIAL CLASS SQLParser
         ENDIF
         table:Name := tableName
         if lTable .and. SELF:Expect("NAME")
-            table:LongName := SELF:ConsumeAndGet():Text
+            LOCAL cLongName := SELF:ConsumeAndGet():Text AS STRING
+            IF (cLongName:StartsWith('"') .AND. cLongName:EndsWith('"')) .OR. ;
+               (cLongName:StartsWith("'") .AND. cLongName:EndsWith("'"))
+                cLongName := cLongName:Substring(1, cLongName:Length - 2)
+            ENDIF
+            table:LongName := cLongName
         ENDIF
         IF lTable .and. SELF:Expect("FREE")
             table:Free := TRUE
@@ -338,6 +343,30 @@ PARTIAL CLASS SQLParser
                 table:ArrayName := SELF:ConsumeAndGet():Text
             ENDIF
         ENDIF
+        // Deduplicate physical DBF field names that collide after 10-char truncation.
+        // VFP strategy: keep the first occurrence as-is, rename subsequent collisions
+        // by shortening the base and appending a numeric suffix (e.g. CustomerA0, CustomerA1).
+        LOCAL usedNames AS HashSet<STRING>
+        usedNames := HashSet<STRING>{StringComparer.OrdinalIgnoreCase}
+        foreach var col in table:Columns
+            IF ! usedNames:Add(col:Name)
+                // Name already taken — find a unique suffixed alternative
+                LOCAL suffix AS INT
+                LOCAL candidate AS STRING
+                suffix := 0
+                DO WHILE TRUE
+                    LOCAL sfxStr AS STRING
+                    sfxStr := suffix:ToString()
+                    candidate := col:Name:Substring(0, 10 - sfxStr:Length) + sfxStr
+                    IF ! usedNames:Contains(candidate)
+                        EXIT
+                    ENDIF
+                    suffix += 1
+                ENDDO
+                col:Name := candidate
+                usedNames:Add(candidate)
+            ENDIF
+        next
         foreach var column in table:Columns
             column:Table := table
         next
@@ -394,8 +423,15 @@ PARTIAL CLASS SQLParser
             SELF:SetError("Expected Column Name", SELF:Lt1 )
             RETURN FALSE
         ENDIF
-        sqlField:Name    := name:Text
+        // Preserve the full identifier as the long name (DBC OBJECTNAME / alias).
+        // The physical DBF field name is limited to 10 characters by the VFP spec.
+        sqlField:Alias   := name:Text
         sqlField:Caption := name:Text
+        IF name:Text:Length > 10
+            sqlField:Name := name:Text:Substring(0, 10)
+        ELSE
+            sqlField:Name := name:Text
+        ENDIF
         IF !SELF:ExpectAndGet(XTokenType.ID, out oType)
             SELF:SetError("Expected Column Type", SELF:Lt1 )
             RETURN FALSE

@@ -22,7 +22,10 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         {
 
         }
+        public XSharpParserRuleContext XParent => (XSharpParserRuleContext)Parent;
+
 #if !VSPARSER
+
         public SyntaxTriviaList ParseTrivia(String comments)
         {
             var source = MCT.SourceText.From(comments);

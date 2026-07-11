@@ -212,6 +212,36 @@
 // This variant moves the ALL clause to the end. This is needed because the WITH clause is declared as non optional
 #command REPLACE <*clauses*> ALL <*moreclauses*> => REPLACE <clauses> <moreclauses> ALL
 
+#command COPY MEMO <field> TO <(file)> <add:ADDITIVE> [AS <nCP>]  ;
+        => DbCopyMemo( <"field">, <(file)>, <ADD>[, <nCP>] )
+
+// REPLACE ... [ADDITIVE] — without IN clause
+#command REPLACE <(f1)> WITH <x1> [<add1:ADDITIVE>]                         ;
+                   [, <(fn)> WITH <xn> [<addn:ADDITIVE>]]                     ;
+           [FOR <lfor>] [WHILE <lwhile>] [NEXT <nnext>] [RECORD <rec>]        ;
+           [<REST:REST>] [<noopt:NOOPTIMIZE>] [all]                           ;
+        => DbEval(                                                             ;
+               {|| DbAutoLock(),                                               ;
+                   __FieldSetAdd(<(f1)>, <x1>, <.add1.>)                     ;
+                   [, __FieldSetAdd(<(fn)>, <xn>, <.addn.>)],                ;
+                   DbAutoUnLock() },                                          ;
+               <{lfor}>, <{lwhile}>, <nnext>, <rec>, <.rest.>, <.noopt.>     ;
+             )
+
+// REPLACE ... [ADDITIVE] IN workarea — defined LAST, tried FIRST
+#command REPLACE <(f1)> WITH <x1> [<add1:ADDITIVE>]                         ;
+                   [, <(fn)> WITH <xn> [<addn:ADDITIVE>]]                     ;
+           [FOR <lfor>] [WHILE <lwhile>] [NEXT <nnext>] [RECORD <rec>]        ;
+           [<REST:REST>] IN <(a)> [<noopt:NOOPTIMIZE>] [all]                ;
+        => (<(a)>)->(DbEval(                                              ;
+               {|| DbAutoLock(),                                               ;
+                   __FieldSetAdd(<(f1)>, <x1>, <.add1.>)                     ;
+                   [, __FieldSetAdd(<(fn)>, <xn>, <.addn.>)],                ;
+                   DbAutoUnLock() },                                          ;
+               <{lfor}>, <{lwhile}>, <nnext>, <rec>, <.rest.>, <.noopt.>     ;
+             ))
+
+
 #command DELETE                                                         ;
          [FOR <lfor>]                                                   ;
          [WHILE <lwhile>]                                               ;
@@ -562,6 +592,32 @@
 #command CREATE DATABASE <(db)>                                         => XSharp.RDD.Dbc.Create( <(db)>)
 #command DELETE DATABASE <(db)> [<del:DELETETABLES>] [<rec:RECYCLE>]    => XSharp.RDD.Dbc.Delete( <(db)>, <.del.>, <.rec.>)
 
+// CLOSE DATABASES [ALL] and CLOSE TABLES [ALL]
+// Implemented in XSharp.VFP\Database\DatabaseCommands.prg
+
+#command CLOSE DATABASES [<all:ALL>]    => __VFPCloseDatabases( <.all.> )
+#command CLOSE TABLES [<all:ALL>]    	=> __VFPCloseTables( <.all.> )
+
+// ADD TABLE TableName [NAME LongTableName]
+// Links an existing free .DBF to the currently active database.
+// Implemented in XSharp.VFP\Database\DatabaseCommands.prg
+// The NAME variant is defined last (tried first) to correctly consume the NAME clause.
+#command ADD TABLE <(file)>                  => __VFPAddTable( <(file)>, "")
+#command ADD TABLE <(file)> NAME <(name)>    => __VFPAddTable( <(file)>, <(name)>)
+
+// REMOVE TABLE TableName [DELETE] [RECYCLE]
+// Unlinks a table from the active database; optionally deletes the .DBF file.
+// Implemented in XSharp.VFP\Database\DatabaseCommands.prg
+// Precedence: most-specific forms defined last = tried first.
+#command REMOVE TABLE <(name)>                   => __VFPRemoveTable( <(name)>, .F., .F.)
+#command REMOVE TABLE <(name)> DELETE            => __VFPRemoveTable( <(name)>, .T., .F.)
+#command REMOVE TABLE <(name)> RECYCLE           => __VFPRemoveTable( <(name)>, .F., .T.)
+
+// RENAME TABLE OldName TO NewName
+// Changes the logical name in the DBC; does not rename the physical .DBF.
+// Implemented in XSharp.VFP\Database\DatabaseCommands.prg
+#command RENAME TABLE <(old)> TO <(new)>     => __VFPRenameTable( <(old)>, <(new)>)
+
 // connection commands
 #command CREATE CONNECTION <(conn)> ;
     [DATASOURCE <(Dsn)>]    ;
@@ -601,8 +657,8 @@
 #translate CAST ( <expression> AS <type:W,C,Y,D,T,B,F,G,I,L,M,N,Q,V>(<width> ) )        => __FoxCast(<expression>,<(type)>, <width>,-1)
 #translate CAST ( <expression> AS <type:W,C,Y,D,T,B,F,G,I,L,M,N,Q,V>(<width> ,<dec>) )  => __FoxCast(<expression>,<(type)>, <width>,<dec>)
 
+#command LABEL <*any*> => __VfpUnsupported("LABEL")
 
-// unsupported commands
 #command CREATE <cmd:CLASS, CLASSLIB, COLOR, CONNECTION, FORM, LABEL, MENU, PROJECT, QUERY, REPORT, SCREEN, STRUCTURE, TRIGGER>  <*any*> ;
          => #error This command is not supported: <(udc)>
 

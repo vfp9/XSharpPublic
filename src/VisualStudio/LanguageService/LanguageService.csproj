@@ -12,6 +12,8 @@
     <OutputType>Library</OutputType>
     <RootNamespace>XSharp.LanguageService</RootNamespace>
     <AssemblyName>XSharp.LanguageService</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkMoniker>.NETFramework,Version=v4.7.2</TargetFrameworkMoniker>
     <RuntimeIdentifier>win</RuntimeIdentifier>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
     <IncludeDebugSymbolsInLocalVSIXDeployment>true</IncludeDebugSymbolsInLocalVSIXDeployment>
@@ -28,7 +30,7 @@
     <DefineConstants>DEBUG;NOASYNCCOMPLETION;XSHARP</DefineConstants>
     <CreateVsixContainer>False</CreateVsixContainer>
     <DeployExtension>False</DeployExtension>
-    <NoWarn>618;4014;NU1603;NU1605;VSTHRD010</NoWarn>
+    <NoWarn>618;4014;NU1903;NU1605;VSTHRD010</NoWarn>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -36,7 +38,7 @@
     <Optimize>true</Optimize>
     <DeployExtension>False</DeployExtension>
     <CreateVsixContainer>False</CreateVsixContainer>
-    <NoWarn>618;4014;NU1603;NU1605;VSTHRD010</NoWarn>
+    <NoWarn>618;4014;NU1903;NU1605;VSTHRD010</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
     <RunPostBuildEvent>Always</RunPostBuildEvent>
@@ -73,6 +75,15 @@
     <Compile Include="Interop\ComHandle.cs" />
     <Compile Include="Interop\IComWrapperFixed.cs" />
     <Compile Include="Interop\WrapperPolicy.cs" />
+    <Compile Include="Library\HierarchyListener.cs" />
+    <Compile Include="Library\Library.cs" />
+    <Compile Include="Library\LibraryNode.cs" />
+    <Compile Include="Library\MultiValueDictionary.cs" />
+    <Compile Include="Library\TextLineEventListener.cs" />
+    <Compile Include="Library\XSharpLibraryManager.cs" />
+    <Compile Include="Library\XSharpLibraryNode.cs" />
+    <Compile Include="Library\XSharpLibraryProject.cs" />
+    <Compile Include="Library\XSharpModuleId.cs" />
     <Compile Include="LanguageService\XSharpEditorFactory.cs" />
     <Compile Include="MatchingTokens\AbstractMatching.cs" />
     <Compile Include="MatchingTokens\IdentifierMatching.cs" />
