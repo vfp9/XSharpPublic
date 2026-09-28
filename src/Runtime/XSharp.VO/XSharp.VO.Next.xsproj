@@ -2,7 +2,7 @@
   <Import Project="..\Runtime.Sdk.Props" />
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <RootNamespace>XSharp</RootNamespace>
+    <RootNamespace>XSharp.VO</RootNamespace>
     <AssemblyName>XSharp.VO</AssemblyName>
     <Dialect>VO</Dialect>
     <Unsafe>True</Unsafe>
@@ -10,6 +10,7 @@
     <Cs>true</Cs>
     <StartupObject />
     <TargetFramework>net8.0</TargetFramework>
+    <Vo15>true</Vo15>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <TreatWarningsAsErrors>False</TreatWarningsAsErrors>

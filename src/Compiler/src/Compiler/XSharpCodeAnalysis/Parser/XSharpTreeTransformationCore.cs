@@ -19,10 +19,11 @@ using LanguageService.CodeAnalysis.XSharp.SyntaxParser;
 using Microsoft.CodeAnalysis.PooledObjects;
 using Roslyn.Utilities;
 using XP = LanguageService.CodeAnalysis.XSharp.SyntaxParser.XSharpParser;
+using Microsoft.CodeAnalysis.Syntax.InternalSyntax;
+
 namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 {
     using Microsoft.CodeAnalysis.Syntax.InternalSyntax;
-    using static Microsoft.CodeAnalysis.FlowAnalysis.ControlFlowGraphBuilder;
 
     internal partial class XSharpTreeTransformationCore : XSharpBaseListener
     {
@@ -38,7 +39,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             public XP.Namespace_Context FileScopedNamespace;
             public SyntaxListBuilder<MemberDeclarationSyntax> GlobalClassMembers;
             public SyntaxListBuilder<MemberDeclarationSyntax> StaticGlobalClassMembers;
-            public List<MemVarFieldInfo> FileWidePublics;
+            public MemVarFieldInfoList FileWidePublics { get; private set; }
             public object LastMember;
             public bool LastIsStatic;
             public bool HasSlen = false;
@@ -51,6 +52,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             public bool HasPCall;
             public bool HasPartialType;
 
+
+            internal void AddFileWidePublic(MemVarFieldInfo var)
+            {
+                if (FileWidePublics == null)
+                    FileWidePublics = new MemVarFieldInfoList();
+                FileWidePublics.Add(var);
+            }
+
             internal SyntaxEntities(SyntaxListPool pool)
             {
                 Externs = pool.Allocate<ExternAliasDirectiveSyntax>();
@@ -61,7 +70,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                 StaticGlobalClassMembers = pool.Allocate<MemberDeclarationSyntax>();
                 InitProcedures = new List<Tuple<int, String>>();
                 Globals = new List<FieldDeclarationSyntax>();
-                FileWidePublics = new List<MemVarFieldInfo>();
                 FileScopedNamespace = null;
                 _pool = pool;
                 HasPCall = false;
@@ -187,7 +195,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
         #endregion
         #region Properties
-        protected TypeSyntax PtrType => GenerateQualifiedName(SystemQualifiedNames.IntPtr);
+        protected TypeSyntax IntPtrType => GenerateQualifiedName(SystemQualifiedNames.IntPtr);
+        protected TypeSyntax PtrType => _syntaxFactory.PointerType(VoidType, SyntaxFactory.MakeToken(SyntaxKind.AsteriskToken));
         protected TypeSyntax _impliedType =>
             GenerateSimpleName(XSharpSpecialNames.ImpliedTypeName);
         protected TypeSyntax IntType =>
@@ -863,9 +872,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             else if (expr is XP.PrimaryExpressionContext)
             {
                 var prim = expr as XP.PrimaryExpressionContext;
-                if (prim.Expr is XP.VoCastExpressionContext)
+                if (prim.Expr is XP.VoCastExpressionContext vcec)
                 {
-                    var e = prim.Expr as XP.VoCastExpressionContext;
+                    var e = vcec;
                     if (e.Type != null)
                     {
                         type = e.Type.Get<TypeSyntax>();
@@ -883,16 +892,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                     isConst = e.Expr.GetLiteralToken() != null;
                 }
-                else if (prim.Expr is XP.VoCastPtrExpressionContext)
+                else if (prim.Expr is XP.VoCastPtrExpressionContext vcpec)
                 {
-                    var e = prim.Expr as XP.VoCastPtrExpressionContext;
-                    var e2 = prim.Expr.Get<CastExpressionSyntax>();
+                    var e = vcpec;
+                    var e2 = vcpec.Get<CastExpressionSyntax>();
                     type = e2.Type;
-                    isConst = e.Expr.GetLiteralToken() != null;
+                    isConst = vcpec.Expr.GetLiteralToken() != null;
                 }
-                else if (prim.Expr is XP.VoConversionExpressionContext)
+                else if (prim.Expr is XP.VoConversionExpressionContext vcoec)
                 {
-                    var e = prim.Expr as XP.VoConversionExpressionContext;
+                    var e = vcoec;
                     if (e.Type != null)
                     {
                         type = e.Type.Get<TypeSyntax>();
@@ -903,15 +912,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                     isConst = e.Expr.GetLiteralToken() != null;
                 }
-                else if (prim.Expr is XP.DefaultExpressionContext)
+                else if (prim.Expr is XP.DefaultExpressionContext dec)
                 {
-                    var e = prim.Expr as XP.DefaultExpressionContext;
-                    type = e.Type.Get<TypeSyntax>();
+                    type = dec.Type.Get<TypeSyntax>();
                 }
-                else if (prim.Expr is XP.CtorCallContext)
+                else if (prim.Expr is XP.CtorCallContext ccc)
                 {
-                    var e = prim.Expr as XP.CtorCallContext;
-                    type = e.Type.Get<TypeSyntax>();
+                    type = ccc.Type.Get<TypeSyntax>();
                 }
                 else if (prim.Expr is XP.CodeblockExpressionContext)
                 {
@@ -926,47 +933,41 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     type = IntType;
                     isConst = true;
                 }
-                else if (prim.Expr is XP.TypeExpressionContext)
+                else if (prim.Expr is XP.TypeExpressionContext tec)
                 {
-                    var e = prim.Expr as XP.TypeExpressionContext;
-                    type = e.Type.Get<TypeSyntax>();
+                    type = tec.Type.Get<TypeSyntax>();
                 }
-                else if (prim.Expr is XP.ParenExpressionContext)
+                else if (prim.Expr is XP.ParenExpressionContext pec)
                 {
-                    var e = prim.Expr as XP.ParenExpressionContext;
-                    type = GetExpressionType(e.LastExpression, ref isConst);
-                    isConst = e.LastExpression.GetLiteralToken() != null;
+                    type = GetExpressionType(pec.LastExpression, ref isConst);
+                    isConst = pec.LastExpression.GetLiteralToken() != null;
                 }
-                else if (prim.Expr is XP.IifExpressionContext)
+                else if (prim.Expr is XP.IifExpressionContext iec)
                 {
-                    var e = prim.Expr as XP.IifExpressionContext;
-                    var i = e.Expr;
+                    var i = iec.Expr;
                     type = GetExpressionType(i.TrueExpr, ref isConst);
                 }
             }
-            else if (expr is XP.TypeCastContext)
+            else if (expr is XP.TypeCastContext tcc)
             {
-                var e = expr as XP.TypeCastContext;
-                type = e.Type.Get<TypeSyntax>();
-                isConst = e.Expr.GetLiteralToken() != null;
+                type = tcc.Type.Get<TypeSyntax>();
+                isConst = tcc.Expr.GetLiteralToken() != null;
 
             }
-            else if (expr is XP.TypeCheckExpressionContext)
+            else if (expr is XP.TypeCheckExpressionContext tcec)
             {
-                var e = expr as XP.TypeCheckExpressionContext;
-                if (e.Op.Type == XP.ASTYPE)
+                if (tcec.Op.Type == XP.ASTYPE)
                 {
-                    type = e.Type.Get<TypeSyntax>();
-                    isConst = e.Expr.GetLiteralToken() != null;
+                    type = tcec.Type.Get<TypeSyntax>();
+                    isConst = tcec.Expr.GetLiteralToken() != null;
                 }
             }
-            else if (expr is XP.BinaryExpressionContext)
+            else if (expr is XP.BinaryExpressionContext bec)
             {
-                var e = expr as XP.BinaryExpressionContext;
                 bool leftIsConst = false;
                 bool rightIsConst = false;
-                type = GetExpressionType(e.Left, ref leftIsConst);
-                var type2 = GetExpressionType(e.Right, ref rightIsConst);
+                type = GetExpressionType(bec.Left, ref leftIsConst);
+                var type2 = GetExpressionType(bec.Right, ref rightIsConst);
                 isConst = leftIsConst && rightIsConst;
                 if (type != type2 && type.ToFullString() != type2.ToFullString())
                 {
@@ -976,13 +977,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                 }
             }
-            else if (expr is XP.AssignmentExpressionContext)
+            else if (expr is XP.AssignmentExpressionContext aec)
             {
-                var e = expr as XP.AssignmentExpressionContext;
                 bool leftIsConst = false;
                 bool rightIsConst = false;
-                type = GetExpressionType(e.Left, ref leftIsConst);
-                var type2 = GetExpressionType(e.Right, ref rightIsConst);
+                type = GetExpressionType(aec.Left, ref leftIsConst);
+                var type2 = GetExpressionType(aec.Right, ref rightIsConst);
                 isConst = leftIsConst && rightIsConst;
                 if (type != type2 && type.ToFullString() != type2.ToFullString())
                 {
@@ -992,21 +992,19 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                 }
             }
-            else if (expr is XP.PrefixExpressionContext)
+            else if (expr is XP.PrefixExpressionContext pec)
             {
-                var e = expr as XP.PrefixExpressionContext;
-                if (e.Op.Type == XP.ADDROF)
+                if (pec.Op.Type == XP.ADDROF)
                     type = _syntaxFactory.PointerType(VoidType, SyntaxFactory.AmpersandToken);
                 else
-                    type = GetExpressionType(e.Expr, ref isConst);
+                    type = GetExpressionType(pec.Expr, ref isConst);
             }
             if (type == null)
             {
                 type = ObjectType;
             }
-            if (type is PredefinedTypeSyntax)
+            if (type is PredefinedTypeSyntax pdt)
             {
-                var pdt = type as PredefinedTypeSyntax;
                 switch (pdt.Keyword.Kind)
                 {
                     case SyntaxKind.IntKeyword:
@@ -1028,7 +1026,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
                 }
             }
-            else if (type.IsPtrType())
+            else if (type is PointerTypeSyntax)
             {
                 isConst = true;
             }
@@ -5628,6 +5626,19 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                 type = context.DataType?.Get<TypeSyntax>();
                 isConst = false;
             }
+            if (type.IsVoidPtr())
+            {
+                isConst = false;
+                if (context.Expr.IsVoCast())
+                {
+                    var pec = context.Expr as XP.PrimaryExpressionContext;
+                    var cast = pec.Expr as XP.VoCastExpressionContext;
+                    if (cast.IsPtrCastZero())
+					{
+                        isConst = true;
+					}
+                }
+            }
             var list = _pool.Allocate();
             SyntaxList<SyntaxToken> modifiers = null;
             if (context.Modifiers != null)
@@ -7655,6 +7666,33 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             return null;
         }
 
+        protected XP.CodeblockContext GetCodeBlock(XSharpParserRuleContext context)
+        {
+            var parent = context.Parent;
+            while (parent != null && parent is not XP.IEntityContext)
+            {
+                if (parent is XP.CodeblockContext codeblock)
+                {
+                    if (codeblock.IsLambda)
+                        return null;
+                    else
+                        return codeblock;
+                }
+                parent = parent.Parent;
+            }
+            return null;
+        }
+        public override void EnterAccessMember([NotNull] XP.AccessMemberContext context)
+        {
+            base.EnterAccessMember(context);
+            var cb = GetCodeBlock(context);
+            if (CurrentMember != null && cb != null && context.HasThisReference)
+            {
+                // there is a self or this prefix in the codeblock
+                // we need to create a special variable for this
+                CurrentMember.Data.HasThisInCodeBlock = true;
+            }
+        }
         public override void ExitAccessMember([NotNull] XP.AccessMemberContext context)
         {
             if (context.Op.Type == XP.COLONCOLON && context.Expr == null)
@@ -7697,10 +7735,17 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             else
             {
                 // When AllowDotForInstanceMembers
-                if (context.Op.Type == XP.DOTCOLON ||
-                        context.Op.Type == XP.COLON || _options.HasOption(CompilerOption.AllowDotForInstanceMembers, context, PragmaOptions))
+                if (context.IsDotColonExpression || context.IsColonExpression ||
+                    _options.HasOption(CompilerOption.AllowDotForInstanceMembers, context, PragmaOptions))
                 {
-                    context.Put(MakeSimpleMemberAccess(context.Expr.Get<ExpressionSyntax>(), context.Name.Get<SimpleNameSyntax>()));
+                    var left = context.Expr.Get<ExpressionSyntax>();
+                    var cb = GetCodeBlock(context);
+					var mem = CurrentMember;
+                    if (mem != null && cb != null && context.HasThisReference && mem.Data.HasThisInCodeBlock)
+                    {
+                        left = GenerateSimpleName(XSharpSpecialNames.This);
+                    }
+                    context.Put(MakeSimpleMemberAccess(left, context.Name.Get<SimpleNameSyntax>()));
                 }
                 else if (context.Expr.Get<ExpressionSyntax>() is NameSyntax)
                 {
@@ -7716,7 +7761,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             }
             return;
         }
-
+        protected virtual void ImplementSpecialLocals(XP.IMemberWithBodyContext context, SyntaxListBuilder<StatementSyntax> stmts)
+        {
+            if (context.Data.HasThisInCodeBlock)
+            {
+                // Add local Xs$This and assign SELF
+                var thisdecl = GenerateLocalDecl(XSharpSpecialNames.This, ObjectType, GenerateSelf());
+                thisdecl.XGenerated = true;
+                stmts.Add(thisdecl);
+            }
+        }
         public override void ExitAccessMemberWith([NotNull] XP.AccessMemberWithContext context)
         {
             var expr = context.Right.Get<ExpressionSyntax>();
@@ -9917,13 +9971,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
         {
             ParameterListSyntax paramList = context.LambdaParamList?.Get<ParameterListSyntax>() ?? EmptyParameterList();
             bool updateparams = false;
-            if (context.lambda == null &&
+            if (context.IsCodeBlock &&
                 context.LambdaParamList?.ExplicitParams != null)
             {
                 //paramList = paramList.WithAdditionalDiagnostics(new SyntaxDiagnosticInfo(ErrorCode.ERR_CodeBlockWithTypeParameters));
                 updateparams = true;
             }
-            if (context.lambda != null)
+            if (context.IsLambda)
             {
                 context.SetSequencePoint(context.Start, context.lambda);
                 bool bWarn;

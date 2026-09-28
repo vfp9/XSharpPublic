@@ -6,7 +6,7 @@
 #nullable disable
 
 using InternalSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax;
-
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Linq;
 using System.Collections.Generic;
@@ -16,16 +16,17 @@ using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
 using Antlr4.Runtime.Atn;
 using System.Diagnostics;
-using Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax;
+using static LanguageService.CodeAnalysis.XSharp.SyntaxParser.XSharpParser;
+
 
 
 #if !VSPARSER
-using MCT = Microsoft.CodeAnalysis.Text;
 using CoreInternalSyntax = Microsoft.CodeAnalysis.Syntax.InternalSyntax;
 
 #endif
 namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
 {
+    using Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax;
     internal class XSharpErrorListener : IAntlrErrorListener<IToken>
     {
         readonly String _fileName;
@@ -64,7 +65,25 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         public bool IsXPP => Options.Dialect == XSharpDialect.XPP;
         public bool IsFox => Options.Dialect == XSharpDialect.FoxPro;
         public bool IsVO => Options.Dialect switch { XSharpDialect.VO => true, XSharpDialect.Vulcan => true, _ => false };
-        public bool IsCoreVO => Options.Dialect switch { XSharpDialect.Core => true, XSharpDialect.VO => true, XSharpDialect.Vulcan => true, _ => false };
+        public bool AllowTypeAsNumber
+        {
+            get
+            {
+                switch (Options.Dialect)
+                {
+                    case XSharpDialect.Core:
+                    case XSharpDialect.VO:
+                    case XSharpDialect.Vulcan:
+                    case XSharpDialect.XBaseNet:
+                        return true;
+                    case XSharpDialect.XPP:
+                    case XSharpDialect.Harbour:
+                    case XSharpDialect.FoxPro:
+                    default:
+                        return false;
+                }
+            }
+        }
         public bool ModernSyntax => Options.ModernSyntax;
         public bool HasMemVars
         {
@@ -377,6 +396,7 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             HasExplicitOverride = 1 << 22,
             IsProperty = 1 << 23,
             HasThisForm = 1 << 24,
+            HasThisInCodeBlock = 1 << 25,
         }
         #endregion
 
@@ -554,14 +574,19 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
                 get { return flags.HasFlag(MemberFlags.HasThisForm); }
                 set { setFlags(MemberFlags.HasThisForm, value); }
             }
+            public bool HasThisInCodeBlock
+            {
+                get { return flags.HasFlag(MemberFlags.HasThisInCodeBlock); }
+                set { setFlags(MemberFlags.HasThisInCodeBlock, value); }
+            }
 
             #endregion
-            internal Dictionary<string, MemVarFieldInfo> Fields = null;
+            internal MemVarFieldInfoList Fields = null;
             internal MemVarFieldInfo AddField(string name, string Alias, XSharpParserRuleContext context)
             {
                 if (Fields == null)
                 {
-                    Fields = new Dictionary<string, MemVarFieldInfo>(XSharpString.Comparer);
+                    Fields = new MemVarFieldInfoList();
                 }
                 MemVarFieldInfo info;
                 if (Fields.ContainsKey(name))
@@ -571,7 +596,7 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
                 else
                 {
                     info = new MemVarFieldInfo(name, Alias, context);
-                    Fields.Add(info.Name, info);
+                    Fields.Add(info);
                 }
                 if (!info.IsMacroMemvar)
                 {
@@ -582,12 +607,13 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             }
             internal MemVarFieldInfo GetField(string name)
             {
-                if (Fields != null && Fields.ContainsKey(name))
+                if (Fields != null && Fields.TryGetValue(name, out var field))
                 {
-                    return Fields[name];
+                    return field;
                 }
                 return null;
             }
+
         }
 #endif
         public partial class ScriptContext : IEntityContext
@@ -1176,6 +1202,7 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         {
             public bool XSharpRuntime;
         }
+
         public partial class XppdeclarepropertyContext : IMemberContext
         {
             public bool IsStatic => this.Modifiers != null && this.Modifiers._Tokens.Any(t => t.Type == XSharpLexer.CLASS || t.Type == XSharpLexer.CLASS);
@@ -1236,6 +1263,25 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             None = 0,
             MemberAccess = 1,
             MPrefix = 2,
+            ThisPrefix = 4,
+
+        }
+
+        public partial class CodeblockContext
+        {
+            internal HashSet<string> parameters;
+            internal void AddParameter(string name)
+            {
+                if (parameters == null)
+                    parameters = new HashSet<string>(XSharpString.Comparer);
+                parameters.Add(name);
+            }
+            internal bool HasParameter(string name)
+            {
+                return parameters != null && parameters.Contains(name);
+            }
+            internal bool IsLambda => this.lambda != null;
+            internal bool IsCodeBlock => this.lambda == null;
         }
         public partial class AccessMemberContext
         {
@@ -1244,6 +1290,15 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             internal bool HasMPrefix => foxFlags.HasFlag(FoxFlags.MPrefix);
             internal string AreaName => Expr == null ? "" : Expr.GetText().ToUpper();
             internal string FieldName => Name.GetText().ToUpper();
+            internal bool HasThisReference => Op.Type == XSharpLexer.DOT && Expr != null &&
+                this.Expr.Start == this.Expr.Stop &&
+                (this.Expr.Start.Type == XSharpParser.SELF);
+
+            internal bool IsDotExpression => Op.Type == XSharpParser.DOT;
+            internal bool IsColonExpression => Op.Type == XSharpParser.COLON;
+            internal bool IsDotColonExpression => Op.Type == XSharpParser.DOTCOLON;
+            internal bool IsStaticMethodCall => IsDotExpression &&
+                        this.XParent is XSharpParser.MethodCallContext;
 
         }
         #region Ruleš with multiple vars or multiple expressions The Count determines how breakpoints are set
@@ -1446,6 +1501,24 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
     }
 
 #if !VSPARSER
+
+    public class MemVarFieldInfoList : Dictionary<string, MemVarFieldInfo>
+    {
+        public MemVarFieldInfoList() : base(StringComparer.OrdinalIgnoreCase)
+        {
+
+        }
+
+        public void Add(MemVarFieldInfo info)
+        {
+            this.TryAdd(info.Name, info);
+            if (!info.IsMacroMemvar && info.Name != info.FullName)
+            {
+                this.TryAdd(info.FullName, info);
+            }
+        }
+
+    }
     [DebuggerDisplay("{_fieldType} {FullName}")]
     public class MemVarFieldInfo
     {
@@ -1458,6 +1531,7 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             Local,
             Unknown
         }
+        public bool IsMemvar => _fieldType == MemvarType.Memvar;
         public bool IsField => _fieldType == MemvarType.Field;
         public bool IsClipperParameter => _fieldType == MemvarType.ClipperParameter;
         public bool IsMacroMemvar => _fieldType == MemvarType.MacroMemvar;
@@ -1595,9 +1669,35 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
 #endif
     internal static class RuleExtensions
     {
+
+        internal static IMemberContext GetCurrentMember([NotNull] this XSharpParserRuleContext context)
+        {
+            var current = context.Parent;
+            while (current != null)
+            {
+                if (current is IMemberContext member)
+                    return member;
+                current = current.Parent;
+            }
+            return null;
+        }
+
+        internal static bool IsNullPtr([NotNull] this XSharpParserRuleContext context)
+        {
+            return context.ChildCount == 1 && context.Start.Type == XSharpParser.NULL_PTR;
+        }
         internal static XSharpParserRuleContext Context([NotNull] this XSharpParser.IEntityContext entity) => (XSharpParserRuleContext)entity;
         internal static bool isScript([NotNull] this XSharpParser.IEntityContext entity) => entity is XSharpParser.ScriptContext;
 #if !VSPARSER
+
+        internal static bool IsPtrCastZero([NotNull] this XSharpParserRuleContext context)
+        {
+            return context is VoCastExpressionContext voc
+                            && voc.Expr is PrimaryExpressionContext pe
+                            && pe.Expr is LiteralExpressionContext le
+                            && le.Literal.Token.IsZeroLiteral();
+        }
+
         internal static bool IsStatic(this InternalSyntax.ClassDeclarationSyntax classdecl)
         {
             return classdecl.Modifiers.Any((int)SyntaxKind.StaticKeyword);
@@ -1624,10 +1724,12 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         {
             return type.IsOfType(OurTypeNames.SymbolType);
         }
-        internal static bool IsPtrType(this InternalSyntax.TypeSyntax type)
+        internal static bool IsVoidPtr(this InternalSyntax.TypeSyntax type)
         {
-            return type.IsOfType("IntPtr");
+            return type is PointerTypeSyntax pts && pts.ElementType is PredefinedTypeSyntax pds
+                            && pds.Keyword.Kind == SyntaxKind.VoidKeyword;
         }
+
         internal static bool IsStatic(this InternalSyntax.ConstructorDeclarationSyntax ctordecl)
         {
             return ctordecl.Modifiers.Any((int)SyntaxKind.StaticKeyword);
@@ -1689,24 +1791,24 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         internal static bool IsRealCodeBlock([NotNull] this XSharpParserRuleContext context)
         {
 
-            if (context is XSharpParser.ArrayElementContext aelc)
+            if (context is ArrayElementContext aelc)
                 return aelc.Expr.IsRealCodeBlock();
-            if (context is XSharpParser.PrimaryExpressionContext pec)
+            if (context is PrimaryExpressionContext pec)
                 return pec.Expr.IsRealCodeBlock();
-            if (context is XSharpParser.CodeblockExpressionContext cec)
+            if (context is CodeblockExpressionContext cec)
                 return cec.CbExpr.IsRealCodeBlock();
-            if (context is XSharpParser.AliasedExpressionContext aexc)
+            if (context is AliasedExpressionContext aexc)
             {
                 if (aexc.XSharpRuntime)
                 {
                     return false;
                 }
             }
-            if (context is XSharpParser.CodeblockCodeContext cbcc)
+            if (context is CodeblockCodeContext cbcc)
                 return cbcc.XParent.IsRealCodeBlock();
-            if (context is XSharpParser.CodeblockContext cbc)
+            if (context is CodeblockContext cbc)
             {
-                if (cbc.lambda != null)
+                if (cbc.IsLambda)
                     return false;
                 // when no => operator and no explicit parameters
                 // then this is a true codeblock
@@ -1717,24 +1819,24 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
         internal static string CodeBlockSource([NotNull] this XSharpParserRuleContext context)
         {
 
-            if (context is XSharpParser.ArrayElementContext aelc)
+            if (context is ArrayElementContext aelc)
                 return aelc.Expr.CodeBlockSource();
-            if (context is XSharpParser.PrimaryExpressionContext pec)
+            if (context is PrimaryExpressionContext pec)
                 return pec.Expr.CodeBlockSource();
-            if (context is XSharpParser.CodeblockExpressionContext cec)
+            if (context is CodeblockExpressionContext cec)
                 return cec.CbExpr.CodeBlockSource();
-            if (context is XSharpParser.AliasedExpressionContext aexc)
+            if (context is AliasedExpressionContext aexc)
             {
                 if (aexc.XSharpRuntime)
                 {
                     return null;
                 }
             }
-            if (context is XSharpParser.CodeblockCodeContext)
+            if (context is CodeblockCodeContext)
                 return context.XParent.CodeBlockSource();
-            if (context is XSharpParser.CodeblockContext cbc)
+            if (context is CodeblockContext cbc)
             {
-                if (cbc.lambda != null)
+                if (cbc.IsLambda)
                     return null;
                 // when no => operator and no explicit parameters
                 // then this is a true codeblock
@@ -1748,8 +1850,8 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             var parent = context.Parent;
             if (parent == null)
                 return false;
-            if (parent is XSharpParser.ClassmemberContext)
-                return parent.Parent is XSharpParser.Interface_Context;
+            if (parent is ClassmemberContext)
+                return parent.Parent is Interface_Context;
             else
                 return parent.isInInterface();
         }
@@ -1761,7 +1863,7 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
                 return null;
             if (parent is XSharpParser.CodeblockContext cbc)
             {
-                if (cbc.lambda != null || cbc.Or != null || cbc.P1 != null)
+                if (cbc.IsLambda || cbc.Or != null || cbc.P1 != null)
                     return cbc;
             }
             return parent.GetParentCodeBlock();
@@ -1776,17 +1878,20 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             var parent = context.Parent;
             if (parent == null)
                 return false;
-            if (parent is XSharpParser.ClassmemberContext)
+            if (parent is ClassmemberContext)
             {
-                if (parent.Parent is XSharpParser.Class_Context)
+                if (parent.Parent is Class_Context)
                     return true;
-                if (parent.Parent is XSharpParser.FoxclassContext)
-                    return true;
+                // can also be an interface or a structure
                 return false;
             }
-            else if (parent is XSharpParser.XppclassMemberContext)
+            else if (parent is FoxclassmemberContext)
             {
-                return parent.Parent is XSharpParser.XppclassContext;
+                return parent.Parent is FoxclassContext;
+            }
+            else if (parent is XppclassMemberContext)
+            {
+                return parent.Parent is XppclassContext;
             }
             return parent.isInClass();
         }
@@ -1795,8 +1900,8 @@ namespace LanguageService.CodeAnalysis.XSharp.SyntaxParser
             var parent = context.Parent;
             if (parent == null)
                 return false;
-            if (parent is XSharpParser.ClassmemberContext)
-                return parent.Parent is XSharpParser.Structure_Context;
+            if (parent is ClassmemberContext)
+                return parent.Parent is Structure_Context;
             else
                 return parent.isInStructure();
         }

@@ -4,13 +4,12 @@
 // See License.txt in the project root for license information.
 //
 #nullable disable
+using System.Collections.Generic;
+using System.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
 using Antlr4.Runtime.Tree;
 using LanguageService.CodeAnalysis.XSharp.SyntaxParser;
-using System.Collections.Generic;
-using System.Linq;
-using static Microsoft.CodeAnalysis.FlowAnalysis.ControlFlowGraphBuilder;
 
 namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 {
@@ -871,7 +870,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
         public override void ExitVostruct([NotNull] XSharpParser.VostructContext context)
         {
-            if (_options.Dialect != XSharpDialect.VO && _options.Dialect != XSharpDialect.Vulcan)
+            if (!_options.Dialect.LikeVO())
             {
                 NotInDialect(context, "VOSTRUCT");
             }
@@ -879,7 +878,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
         public override void ExitVounion([NotNull] XSharpParser.VounionContext context)
         {
-            if (_options.Dialect != XSharpDialect.VO && _options.Dialect != XSharpDialect.Vulcan)
+            if (!_options.Dialect.LikeVO())
             {
                 NotInDialect(context, "UNION");
             }

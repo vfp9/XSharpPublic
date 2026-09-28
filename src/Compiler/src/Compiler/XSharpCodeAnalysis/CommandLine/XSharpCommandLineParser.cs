@@ -13,8 +13,20 @@ namespace Microsoft.CodeAnalysis.CSharp
 
     public partial class CSharpCommandLineParser : CommandLineParser
     {
-        private XSharpSpecificCompilationOptions options;
-        // Vulcan Assembly Names
+        // The parser state below must not be shared between concurrent compilations.
+        // CSharpCommandLineParser.Default is a process-wide singleton and, with the shared
+        // compiler server (/shared), several compilations are parsed concurrently through it.
+        // Keeping this per-parse state thread-static isolates each parse so that one request's
+        // ResetXSharpCommandlineOptions() cannot discard the half-built options of another.
+        // See https://github.com/X-Sharp/XSharpPublic/issues/2076
+        [ThreadStatic]
+        private static XSharpSpecificCompilationOptions t_options;
+        private XSharpSpecificCompilationOptions options
+        {
+            get { if (t_options == null) t_options = new XSharpSpecificCompilationOptions(); return t_options; }
+            set => t_options = value;
+        }
+
 
         public XSharpSpecificCompilationOptions XSharpSpecificCompilationOptions
         {
@@ -144,6 +156,9 @@ namespace Microsoft.CodeAnalysis.CSharp
                     options.NoStdDef = positive;
                     break;
 
+                case "nothisform":
+                    options.NoThisForm = positive;
+                    break;
                 case "ns":
                     if (value == null)
                     {
@@ -478,9 +493,6 @@ namespace Microsoft.CodeAnalysis.CSharp
 #else
                     return true;
 #endif
-                case "dbase":
-                    dialect = XSharpDialect.dBase;
-                    return true;
 
                 case "foxpro":
                 case "foxbase":
@@ -497,6 +509,9 @@ namespace Microsoft.CodeAnalysis.CSharp
                 case "xbasepp":
                 case "xpp":
                     dialect = XSharpDialect.XPP;
+                    return true;
+                case "xbasenet":
+                    dialect = XSharpDialect.XBaseNet;
                     return true;
                 default:
                     dialect = XSharpDialect.Core;
@@ -547,6 +562,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 {
                     if (options.Dialect == XSharpDialect.XPP ||
                         options.Dialect == XSharpDialect.FoxPro ||
+                        options.Dialect == XSharpDialect.XBaseNet ||
                         options.Dialect == XSharpDialect.Harbour)
                     {
                         AddDiagnostic(diagnostics, ErrorCode.ERR_DialectRequiresReferenceToRuntime, options.Dialect.ToString(),

@@ -122,10 +122,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                 if (memvar.Amp == null)
                 {
                     var name = CleanVarName(memvar.Id.GetText());
-                    var mv = new MemVarFieldInfo(name, "M", memvar, filewidepublic: true);
-                    mv.IsPublic = true;
-                    _fileWideVars.Add(mv.Name, mv);
-                    GlobalEntities.FileWidePublics.Add(mv);
+                    var mv = new MemVarFieldInfo(name, "M", memvar, filewidepublic: true)
+                    {
+                        IsPublic = true
+                    };
+                    AddFileWideVar(mv);
                 }
             }
         }
@@ -134,18 +135,26 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
         {
             // do not assume an area when no Expr (inside WITH Block)
             if (context.Expr != null && context.Op.Type == XP.DOT
-                && context.Parent is not MethodCallContext
+                && !context.IsStaticMethodCall
                 && (context.AreaName == "M" ||
-                    _options.HasOption(CompilerOption.Fox3, context, PragmaOptions)))
+                    _options.HasOption(CompilerOption.FoxCursorSupport, context, PragmaOptions)))
             {
                 context.foxFlags |= XP.FoxFlags.MemberAccess;
                 if (context.Parent is not AccessMemberContext && CurrentMember != null)
                 {
+                    var cb = GetCodeBlock(context);
                     var name = context.AreaName;
-                    var fld = CurrentMember.Data.GetField(name);
-                    if (fld == null)
+                    if (cb != null && cb.HasParameter(name))
                     {
-                        fld = CurrentMember.Data.AddField(name, "_UNKNOWN", context);
+                        ; // do nothing
+                    }
+                    else
+                    {
+                        var fld = CurrentMember.Data.GetField(name);
+                        if (fld == null)
+                        {
+                            fld = CurrentMember.Data.AddField(name, "_UNKNOWN", context);
+                        }
                     }
                 }
             }
@@ -180,7 +189,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             if (context.Id != null)
             {
                 var name = CleanVarName(context.Id.GetText());
-                var alias = XSharpSpecialNames.MemVarPrefix;
+                var alias = context.T.Type == XP.LOCAL ? XSharpSpecialNames.LocalPrefix : XSharpSpecialNames.MemVarPrefix;
                 CheckForFileWideVar(name, context, true);
                 var field = findVar(name);
                 if (field == null)
@@ -267,25 +276,135 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             base.EnterKeywordsoft(context);
             if (CurrentMember != null && context.Start.Type == XSharpLexer.THISFORM)
             {
-                CurrentMember.Data.HasThisForm = true;
+                if (!_options.HasOption(CompilerOption.NoThisForm, context, PragmaOptions))
+                {
+                    CurrentMember.Data.HasThisForm = true;
+                }
+            }
+        }
+        public override void EnterLocalvar([NotNull] XP.LocalvarContext context)
+        {
+            base.EnterLocalvar(context);
+            // register the names of local variables as pseudo memvars because for FoxPro they are not really local
+            //if (_options.HasOption(CompilerOption.FoxCursorSupport, context, PragmaOptions))
+            {
+                var name = context.Id.GetText();
+                AddLocalName(name, context);
+            }
+        }
+        public override void EnterImpliedvar([NotNull] XP.ImpliedvarContext context)
+        {
+            base.EnterImpliedvar(context);
+            // register the names of local variables as pseudo memvars because for FoxPro they are not really local
+            //if (_options.HasOption(CompilerOption.FoxCursorSupport, context, PragmaOptions))
+            {
+                var name = context.Id.GetText();
+                AddLocalName(name, context);
             }
         }
 
+
+        public override void EnterCodeblockParamList([NotNull] CodeblockParamListContext context)
+        {
+            base.EnterCodeblockParamList(context);
+            if (_options.HasOption(CompilerOption.FoxCursorSupport, context, PragmaOptions))
+            {
+                // Register the parameters for the codeblock so we know their names later
+                var cb = GetCodeBlock(context);
+                if (cb != null)
+                {
+                    foreach (var id in context._Ids)
+                    {
+                        var name = id.GetText();
+                        cb.AddParameter(name);
+                    }
+                }
+            }
+        }
+
+        public override void EnterExplicitAnonymousFunctionParamList([NotNull] ExplicitAnonymousFunctionParamListContext context)
+        {
+            base.EnterExplicitAnonymousFunctionParamList(context);
+            if (_options.HasOption(CompilerOption.FoxCursorSupport, context, PragmaOptions))
+            {
+                // Register the parameters for the codeblock so we know their names later
+                var cb = GetCodeBlock(context);
+                if (cb != null)
+                {
+                    foreach (var par in context._Params)
+                    {
+                        var name = par.Id.GetText();
+                        cb.AddParameter(name);
+                    }
+                }
+            }
+        }
         public override void ExitNameExpression([NotNull] XP.NameExpressionContext context)
         {
             base.ExitNameExpression(context);
-            if (context.Start.Type == XP.THISFORM)
+            string name = context.Name.GetText();
+            ExpressionSyntax expr = context.Get<ExpressionSyntax>();
+            // Check to see if the name is a field or Memvar, registered with the FIELD or MemVar statement
+            if (!_options.HasOption(CompilerOption.NoThisForm, context, PragmaOptions)
+                && context.Start.Type == XP.THISFORM)
             {
                 // Translate to Xs$ThisForm
                 if (CurrentMember != null && CurrentMember.Data.HasThisForm)
                 {
-                    var expr = GenerateSimpleName(XSharpSpecialNames.ThisForm);
+                    expr = GenerateSimpleName(XSharpSpecialNames.ThisForm);
                     context.Put(expr);
+                    return;
                 }
             }
+
+            if (context.IsInLambdaOrCodeBlock())
+            {
+                // Make sure parameters for codeblocks are not "touched"
+                var cb = GetCodeBlock(context);
+                if (cb != null && cb.HasParameter(name))
+                {
+                    expr = GenerateSimpleName(name);
+                    context.Put(expr);
+                    return;
+                }
+            }
+
+            // SomeVar(1,2) Can also be a FoxPro array access
+
+            var isMethodCall = false;
+            var amc = context.XParent.XParent as XP.AccessMemberContext;
+            if (amc != null)
+            {
+                isMethodCall = amc.IsStaticMethodCall;
+            }
+            if (!isMethodCall &&
+                (_options.HasOption(CompilerOption.FoxArraySupport, context, PragmaOptions)))
+            {
+                MemVarFieldInfo fieldInfo = findVar(name);
+                var dotCall = amc?.Op.Type == XP.DOT;
+                if (fieldInfo != null && dotCall)
+                {
+                    // for code that looks like this we do not want to change the expression
+                    // Foo(1,2)
+                    // even when Foo is a private because this can never be a assignment
+                    if (!fieldInfo.IsField)
+                    {
+                        if (isMethodCall)
+                        {
+                            fieldInfo = null;
+                        }
+                    }
+                    if (fieldInfo != null)
+                    {
+                        expr = MakeMemVarField(fieldInfo);
+                    }
+                }
+            }
+            context.Put(expr);
         }
-        protected override void ImplementThisForm(XP.IMemberWithBodyContext context, SyntaxListBuilder<StatementSyntax> stmts)
+        protected override void ImplementSpecialLocals(XP.IMemberWithBodyContext context, SyntaxListBuilder<StatementSyntax> stmts)
         {
+            base.ImplementSpecialLocals(context, stmts);
             if (context.Data.HasThisForm)
             {
                 // Add local Xs$ThisForm and assign the result of FindForm()
@@ -358,7 +477,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     {
                         // declare the private.
                         var varname = GetAmpBasedName(memvar.Amp, memvar.Id.Id);
-                        var exp = GenerateMemVarDecl(memvar, varname, true);
+                        var exp = GenerateMemVarDecl(memvar, varname, context.T.Type == XP.PRIVATE);
                         exp.XNode = memvar;
                         stmts.Add(GenerateExpressionStatement(exp, memvar));
                         ExpressionSyntax initializer = null;
@@ -482,6 +601,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             var stmts = new List<StatementSyntax>();
             if (dimVar.Id != null)
             {
+                var name = CleanVarName(dimVar.Id.GetText());
+                MemVarFieldInfo fieldInfo = findVar(name);
+                if (dimVar.T.Type == XSharpParser.LOCAL && fieldInfo == null)
+                {
+                    AddLocalName(name, context);
+                }
+
                 if (isDynamic && !_options.HasOption(CompilerOption.MemVars, context, PragmaOptions))
                 {
                     var s = GenerateEmptyStatement();
@@ -490,9 +616,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     stmts.Add(s);
                     return stmts;
                 }
-                var name = CleanVarName(dimVar.Id.GetText());
-                MemVarFieldInfo fieldInfo = findVar(name);
-
                 ArgumentListSyntax args;
                 ArgumentSyntax arg1;
                 ExpressionSyntax mcall;

@@ -139,7 +139,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         internal const string XppStaticClassPrefix = "Xs$XppStaticClasses";
         internal const string ThisForm = "Xs$ThisForm";
         internal const string FindForm = "FindForm";
-
+        internal const string This = "Xs$This";
         internal const string FunctionsClass = "Functions";
         internal const string VOExeFunctionsClass = ".Exe.Functions";
         internal const string XSharpCoreFunctionsClass = "XSharp.Core.Functions";
@@ -240,6 +240,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         internal const string LocalGet = "__LocalGet";
         internal const string LocalsUpdated = "__LocalsUpdated";
         internal const string LocalsClear = "__LocalsClear";
+        internal const string HasLocals = "__HasLocals";
         internal const string FoxRedim = "__FoxRedim";
         internal const string FoxAssign = "__FoxAssign";
         internal const string FoxFillArray = "__FoxFillArray";
