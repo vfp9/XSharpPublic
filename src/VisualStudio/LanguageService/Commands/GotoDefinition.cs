@@ -8,6 +8,11 @@ using XSharpModel;
 using File = System.IO.File;
 using XSharp.Settings;
 using XSharp.Support;
+using System.Collections;
+using System.Collections.Generic;
+using XSharp.LanguageService.FindReferences;
+using XSharp.LanguageService.ForeignSource;
+using LanguageService.SyntaxTree;
 namespace XSharp.LanguageService
 {
     class XSharpGotoDefinition
@@ -31,13 +36,14 @@ namespace XSharp.LanguageService
             }
             else if (element is XPETypeSymbol petype)
             {
-                GotoSystemType(TextView, petype, petype);
-
+                if (!GotoForeignSource(petype, petype))
+                    GotoSystemType(TextView, petype, petype);
             }
             else if (element is XPEMemberSymbol pemember)
             {
                 var petype2 = pemember.Parent as XPETypeSymbol;
-                GotoSystemType(TextView, petype2, pemember);
+                if (!GotoForeignSource(petype2, pemember))
+                    GotoSystemType(TextView, petype2, pemember);
             }
             else
             {
@@ -46,14 +52,33 @@ namespace XSharp.LanguageService
                     buttons: OLEMSGBUTTON.OLEMSGBUTTON_OK);
             }
         }
+        /// <summary>
+        /// A DLL symbol from a C# or VB project of the solution: open its source. False when it is not one, or its
+        /// source cannot be found; the caller then shows the generated header.
+        /// </summary>
+        private static bool GotoForeignSource(XPETypeSymbol petype, XPESymbol element)
+        {
+            var found = ForeignNavigator.Find(petype, element);
+            if (found.Count == 0)
+                return false;
+            if (found.Count == 1)
+                ForeignNavigator.Open(found[0]);
+            else
+                ForeignNavigator.Present(found, element, $"'{element.Name}' definitions");
+            return true;
+        }
+
         internal static void GotoDefn(ITextView TextView)
         {
             try
             {
                 ModelWalker.Suspend();
-                var result = TextView.GetSymbolUnderCursor(out var state,out _, out _);
+                var result = TextView.GetSymbolUnderCursor(out var state, out var location, out _);
                 //
                 ThreadHelper.ThrowIfNotOnUIThread();
+                result = Targets(result);
+                if (location != null)
+                    result = Overloads(result, location.Document?.Tokens, location.Position, id => SymbolResolver.TypeOf(location, id));
                 if (result.Count == 1)
                 {
                     Goto(result[0], TextView, state);
@@ -74,6 +99,49 @@ namespace XSharp.LanguageService
             {
                 ModelWalker.Resume();
             }
+        }
+
+        /// <summary>
+        /// At a call site, the overloads that take these arguments (count, then the types that are known), as Find
+        /// References and Go To Implementation pick them: one left means F12 jumps there. Without a call, or when the
+        /// arguments rule nothing out, all targets stay and F12 shows the list as before.
+        /// </summary>
+        internal static IList<IXSymbol> Overloads(IList<IXSymbol> targets, IList<IToken> tokens, int position, Func<IToken, string> identifierType)
+        {
+            if (targets.Count < 2 || tokens == null)
+                return targets;
+            return OverloadFilter.Filter(targets, OverloadFilter.ArgumentsAt(tokens, position), identifierType);
+        }
+
+        /// <summary>
+        /// The symbols F12 can go to. A keyword (the caret on <c>CLASS</c>) has no definition: like nothing found, not
+        /// "Cannot navigate". Files that are included more than once because of multi targetting are deduplicated.
+        /// </summary>
+        internal static IList<IXSymbol> Targets(IList<IXSymbol> symbols)
+        {
+            IList<IXSymbol> deduped = new List<IXSymbol>();
+            HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in symbols)
+            {
+                if (item is XKeywordSymbol)
+                    continue;
+                if (item is XSourceEntity source)
+                {
+                    var file = source.File?.FullPath;
+                    var line = source.Range.StartLine;
+                    var key = file + ":" + line.ToString();
+                    if (!files.Contains(key))
+                    {
+                        files.Add(key);
+                        deduped.Add(item);
+                    }
+                }
+                else
+                {
+                    deduped.Add(item);
+                }
+            }
+            return deduped;
         }
 
         private static void DeleteFolderRecursively(DirectoryInfo directory, bool IncludeFiles)
@@ -234,7 +302,7 @@ namespace XSharp.LanguageService
             {
                 fileName = fileName.Replace(c, '_');
             }
-            var temp = Path.Combine(nspath, fileName) + ".prg";
+            var temp = Path.Combine(nspath, fileName) + Constants.SourceFileExtension;
             var fi = new FileInfo(temp);
             mustCreate = !fi.Exists || fi.Length < 10;
             if (mustCreate)

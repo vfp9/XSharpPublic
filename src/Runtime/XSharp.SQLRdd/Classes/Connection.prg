@@ -97,6 +97,68 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
     /// <summary>Should the phantom record have Null values or empty values?</summary>
     property UseNulls           as logic auto
 
+    /// <summary>
+    /// Should record and file locks (RLock/FLock) be emulated through the lock table? (default TRUE)
+    /// </summary>
+    /// <remarks>
+    /// Every emulated lock and unlock is a statement against the lock table, so code that locks
+    /// and unlocks record by record pays a database round trip for each. With UseLocks FALSE,
+    /// RLock()/FLock() always succeed and UnLock() only writes pending changes, without touching
+    /// the lock table: each UPDATE is still atomic on the server, and only the changed columns
+    /// are written, but nothing keeps two users from editing the same record at the same time
+    /// (the last write wins), and code that relies on RLock() failing for a record somebody
+    /// else is editing no longer sees that.
+    /// </remarks>
+    property UseLocks           as logic auto
+
+    /// <summary>
+    /// How long (milliseconds) the RDD may reuse the result of an identical read statement (default 0 = never).
+    /// </summary>
+    /// <remarks>
+    /// Code written for DBF/ADS repeats the same lookups again and again, a round trip each against a
+    /// server. With a value > 0 the RDD answers a read statement it sent within that time from its
+    /// result. A table's results are dropped as soon as this connection writes to it or locks one of its
+    /// records, and all of them when a transaction is rolled back or a statement not sent by the RDD
+    /// writes. Changes of other users are seen at the latest after that time.
+    /// </remarks>
+    property ResultCacheMs      as long
+        get
+            return _resultCacheMs
+        end get
+        set
+            _resultCacheMs := value
+            // While it is off nothing is invalidated: results from before must not come back
+            // when it is switched on again.
+            if value <= 0
+                _resultCache := null
+            endif
+        end set
+    end property
+
+    private _resultCacheMs as long
+    private _resultCache as SqlDbResultCache
+    /// <summary>The cache for ResultCacheMs, NULL when it is off.</summary>
+    internal property ResultCache as SqlDbResultCache
+        get
+            if SELF:ResultCacheMs <= 0
+                return null
+            endif
+            if _resultCache == null
+                _resultCache := SqlDbResultCache{SELF:ResultCacheMs}
+            endif
+            _resultCache:MaxAge := SELF:ResultCacheMs
+            return _resultCache
+        end get
+    end property
+
+    /// <summary>
+    /// Time in seconds a statement may run before it is cancelled (0 = no limit, default -1 = the
+    /// ADO.NET provider's default, 30 seconds for SQL Server).
+    /// </summary>
+    /// <remarks>A count or an index on a table with millions of rows can take longer than the default. A
+    /// statement that times out is reported like any other error, which for a read means no rows.</remarks>
+    property CommandTimeout     as long auto
+
     /// <summary>Identifier Case as returned by the Ado.Net provider in the DataSourceInformation metadata collection.</summary>
     property IdentifierCase     as System.Data.Common.IdentifierCase auto get private set
     /// <summary>Quoted Identifier Case as returned by the Ado.Net provider in the DataSourceInformation metadata collection.</summary>
@@ -206,6 +268,16 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
                 self:TrimTrailingSpaces := isTrue
             case "usenulls"
                 self:UseNulls := isTrue
+            case "uselocks"
+                self:UseLocks := isTrue
+            case "resultcachems"
+                if Int32.TryParse(strValue, out var cacheMs)
+                    self:ResultCacheMs := cacheMs
+                endif
+            case "commandtimeout"
+                if Int32.TryParse(strValue, out var timeout)
+                    self:CommandTimeout := timeout
+                endif
             otherwise
                 builder:Add(key, strValue)
             end switch
@@ -271,6 +343,8 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
         Provider         := SqlDbProvider.Current
         LegacyFieldTypes   := DEFAULT_LEGACYFIELDTYPES
         UseNulls           := DEFAULT_USENULLS
+        UseLocks           := DEFAULT_USELOCKS
+        CommandTimeout     := -1
         LongFieldNames     := DEFAULT_LONGFIELDNAMES
         TrimTrailingSpaces := DEFAULT_TRIMTRAILINGSPACES
         PageSize           := DEFAULT_PAGESIZE
@@ -444,6 +518,8 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
     /// <seealso cref="LastException"/>
     method RollBackTrans as logic
         if self:DbTransaction != null
+            // results read inside the transaction may show changes that are now undone
+            self:_resultCache?:Clear()
             try
                 self:DbTransaction:Rollback()
                 self:DbTransaction := null
@@ -474,6 +550,70 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
             result := null
         end try
         return result
+    end method
+
+    private _literalEncoding as System.Text.Encoding
+    private _literalEncodingRead as logic
+    /// <summary>
+    /// TRUE when cValue can be written as a string literal without a character being changed: ASCII,
+    /// or all characters in the code page of the database (see SqlDbProvider.CodePageStatement, read
+    /// once per connection).
+    /// </summary>
+    internal method IsExactStringLiteral(cValue as string) as logic
+        local lAscii := true as logic
+        foreach var c in cValue
+            if c > (char) 127
+                lAscii := false
+                exit
+            endif
+        next
+        if lAscii
+            return true
+        endif
+        if !_literalEncodingRead
+            _literalEncodingRead := true
+            if SELF:Provider is SqlDbProvider var oProvider .and. !String.IsNullOrEmpty(oProvider:CodePageStatement)
+                try
+                    var oResult := SELF:ExecuteScalar(oProvider:CodePageStatement)
+                    var nCodePage := iif(oResult == null .or. oResult == DBNull.Value, 0, Convert.ToInt32(oResult))
+                    if nCodePage > 0
+                        _literalEncoding := System.Text.Encoding.GetEncoding(nCodePage, System.Text.EncoderFallback.ExceptionFallback, System.Text.DecoderFallback.ExceptionFallback)
+                    endif
+                catch
+                    _literalEncoding := null
+                end try
+            endif
+        endif
+        if _literalEncoding == null
+            return false
+        endif
+        try
+            return _literalEncoding:GetString(_literalEncoding:GetBytes(cValue)) == cValue
+        catch
+            return false
+        end try
+    end method
+
+    private _tableRows := Dictionary<string, int64>{StringComparer.OrdinalIgnoreCase} as Dictionary<string, int64>
+    /// <summary>Approximate number of rows of a table from the statistics of the database (see
+    /// SqlDbProvider.TableRowsStatement), read once per connection; -1 when unknown.</summary>
+    internal method ApproximateRows(cTable as string) as int64
+        local nRows as int64
+        if String.IsNullOrEmpty(cTable)
+            return -1
+        endif
+        if _tableRows:TryGetValue(cTable, out nRows)
+            return nRows
+        endif
+        nRows := -1
+        if SELF:Provider is SqlDbProvider var oProvider .and. !String.IsNullOrEmpty(oProvider:TableRowsStatement)
+            var oResult := SELF:ExecuteScalar(oProvider:TableRowsStatement:Replace(SqlDbProvider.TableNameMacro, cTable:Replace("'", "''")), cTable)
+            if oResult != null .and. oResult != DBNull.Value
+                nRows := Convert.ToInt64(oResult)
+            endif
+        endif
+        _tableRows[cTable] := nRows
+        return nRows
     end method
 
    /// <summary>
@@ -554,6 +694,41 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
     /// <param name="TableName">Name of the table that will be used</param>
     /// <param name="longFieldNames">Should long field names be returned</param>
     /// <returns>Object with Table Information or NULL when an error occurs</returns>
+    /// <summary>
+    /// Describe a decimal/numeric column as a DBF "N" field with the column's own scale.
+    /// </summary>
+    /// <remarks>
+    /// SQLHelpers.GetColumnInfo() maps every System.Decimal column to Currency ("Y") and derives
+    /// its decimals from the precision (Math.Min(precision, 4)), so e.g. a decimal(7,2) column
+    /// reports 4 decimals and browses show "758,0300" instead of "758,03". decimal/numeric is
+    /// also what DBF "N" fields with decimals are stored as (both by Create() and by typical
+    /// DBF-to-SQL migrations), so they would not even round-trip to "N". Only the real currency
+    /// types (money, smallmoney) stay "Y". The length leaves room for the decimal point, as in
+    /// DBF: decimal(7,2) becomes N(8,2).
+    /// </remarks>
+    private method _AdjustDecimalColumn(row as DataRow, colInfo as DbColumnInfo) as void
+        var columns := row:Table:Columns
+        if columns:Contains("DataTypeName") .and. row["DataTypeName"] is string var cTypeName ;
+            .and. cTypeName:IndexOf("money", StringComparison.OrdinalIgnoreCase) >= 0
+            return
+        endif
+        if !columns:Contains("NumericPrecision") .or. !columns:Contains("NumericScale") ;
+            .or. row["NumericPrecision"] == DBNull.Value .or. row["NumericScale"] == DBNull.Value
+            return
+        endif
+        var nPrecision := Convert.ToInt32(row["NumericPrecision"])
+        var nScale     := Convert.ToInt32(row["NumericScale"])
+        // 255 is the "not applicable" sentinel some providers report
+        if nPrecision <= 0 .or. nPrecision >= 255 .or. nScale < 0 .or. nScale >= 255 .or. nScale > nPrecision
+            return
+        endif
+        colInfo:FieldType        := DbFieldType.Number
+        colInfo:Length           := nPrecision + iif(nScale > 0, 1, 0)
+        colInfo:Decimals         := nScale
+        colInfo:NumericPrecision := nPrecision
+        colInfo:NumericScale     := nScale
+        return
+
     method GetStructureForQuery(cQuery as string, TableName as string, longFieldNames as LOGIC) as SqlDbTableInfo
          try
             cQuery := SELF:RaiseStringEvent(self, SqlRDDEventReason.CommandText, TableName, cQuery)
@@ -583,6 +758,8 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
                         colInfo:FieldType := DbFieldType.Date
                         colInfo:Length := 8
                     endif
+                elseif colInfo:FieldType == DbFieldType.Currency
+                    SELF:_AdjustDecimalColumn(row, colInfo)
                 endif
                 if SELF:LegacyFieldTypes
                     // Map back to the old field types
@@ -838,11 +1015,15 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
     INTERNAL CONST DEFAULT_LEGACYFIELDTYPES := TRUE AS LOGIC
     INTERNAL CONST DEFAULT_LONGFIELDNAMES := FALSE AS LOGIC
     INTERNAL CONST DEFAULT_PAGESIZE := 100 AS INT
-    INTERNAL CONST DEFAULT_BUFFERSIZE := 1 AS INT
+    // Number of pages kept in the local buffer. At least 2 are needed so that a browse whose
+    // visible rows straddle a page boundary keeps both pages, instead of refetching one of
+    // them on every repaint; the extra pages leave room for scrolling back and forth.
+    INTERNAL CONST DEFAULT_BUFFERSIZE := 4 AS INT
     INTERNAL CONST DEFAULT_RECNOCOLUMN := "" AS STRING
     INTERNAL CONST DEFAULT_TRIMTRAILINGSPACES := TRUE AS LOGIC
     INTERNAL CONST DEFAULT_UPDATEALLCOLUMNS := FALSE AS LOGIC
     INTERNAL CONST DEFAULT_USENULLS := TRUE AS LOGIC
+    INTERNAL CONST DEFAULT_USELOCKS := TRUE AS LOGIC
     INTERNAL CONST DEFAULT_MAXRECNOASRECCOUNT := FALSE AS LOGIC
     #region Events
     /// <summary>
@@ -941,32 +1122,49 @@ class SqlDbConnection inherit SqlDbHandleObject implements IDisposable
         _lockTimer:Enabled := true
     return
 
+    /// <remarks>
+    /// The timer runs on a thread pool thread, while the application uses the connection on its own
+    /// thread. An ADO.NET connection must not be used by two threads at once: a refresh that came
+    /// during a longer statement (e.g. CREATE INDEX on a big table) made one of them fail with
+    /// "requires an open and available Connection". So the refresh uses a connection of its own.
+    /// </remarks>
     method LockTimerElapsedEvent(sender as object, e as System.Timers.ElapsedEventArgs) as void
-        var parameterName1 := SELF:Provider:ParameterPrefix + "p1"
-
-        // Refresh my Locks
-        using var cmdRefresh := SqlDbCommand{"RefreshLockTable", SELF, false}
-        if !cmdRefresh:Connection:IsOpen
-            cmdRefresh:Connection:ForceOpen()
+        if !SELF:UseLocks
+            // nothing is written to the lock table
+            return
         endif
-        var updateStatement := SELF:Provider:UpdateStatement:Replace(SqlDbProvider.TableNameMacro, LockTableName)
-        updateStatement := updateStatement:Replace(SqlDbProvider.ColumnsMacro, "lockdatetime = " + SELF:Provider:CurrentDateTime)
-        updateStatement := updateStatement:Replace(SqlDbProvider.WhereMacro, "connectionid = " + parameterName1)
-        cmdRefresh:Parameters := List<SqlDbParameter>{}
-        cmdRefresh:Parameters:Add(SqlDbParameter{parameterName1, SELF:ConnectionId:ToString()})
-        cmdRefresh:CommandText := updateStatement
-        cmdRefresh:ExecuteNonQuery()
+        try
+            var parameterName1 := SELF:Provider:ParameterPrefix + "p1"
+            using var oConn := SELF:Provider:CreateConnection()
+            oConn:ConnectionString := SELF:ConnectionString
+            oConn:Open()
 
-        // Clear all old locks
-        using var cmdClear := SqlDbCommand{"ClearLockTable", SELF, false}
-        if !cmdClear:Connection:IsOpen
-            cmdClear:Connection:ForceOpen()
-        endif
-        cmdClear:CommandText := SELF:Provider:DeleteStatement:Replace(SqlDbProvider.TableNameMacro, LockTableName):Replace(SqlDbProvider.WhereMacro, "LockDateTime < " + parameterName1)
-        cmdClear:Parameters := List<SqlDbParameter>{}
-        cmdClear:Parameters:Add(SqlDbParameter{parameterName1, DateTime.Now.AddSeconds(-SELF:LockStaleThreshold)})
-        cmdClear:ExecuteNonQuery()
+            // Refresh my Locks
+            using var cmdRefresh := oConn:CreateCommand()
+            var updateStatement := SELF:Provider:UpdateStatement:Replace(SqlDbProvider.TableNameMacro, LockTableName)
+            updateStatement := updateStatement:Replace(SqlDbProvider.ColumnsMacro, "lockdatetime = " + SELF:Provider:CurrentDateTime)
+            updateStatement := updateStatement:Replace(SqlDbProvider.WhereMacro, "connectionid = " + parameterName1)
+            cmdRefresh:CommandText := updateStatement
+            SELF:_AddParameter(cmdRefresh, parameterName1, SELF:ConnectionId:ToString())
+            cmdRefresh:ExecuteNonQuery()
+
+            // Clear all old locks
+            using var cmdClear := oConn:CreateCommand()
+            cmdClear:CommandText := SELF:Provider:DeleteStatement:Replace(SqlDbProvider.TableNameMacro, LockTableName):Replace(SqlDbProvider.WhereMacro, "LockDateTime < " + parameterName1)
+            SELF:_AddParameter(cmdClear, parameterName1, DateTime.Now.AddSeconds(-SELF:LockStaleThreshold))
+            cmdClear:ExecuteNonQuery()
+        catch ex as Exception
+            // a failed refresh must not take the application down; the next tick tries again
+            System.Diagnostics.Debug.WriteLine("SQLRDD lock table refresh: " + ex:Message)
+        end try
     return
+
+    private method _AddParameter(oCmd as DbCommand, cName as string, oValue as object) as void
+        var oParam := SELF:Provider:CreateParameter()
+        oParam:ParameterName := cName
+        oParam:Value := oValue
+        oCmd:Parameters:Add(oParam)
+        return
 
     #endregion
 

@@ -20,7 +20,12 @@ FUNCTION  __StringEquals(strLHS AS STRING, strRHS AS STRING) AS LOGIC
     IF Object.ReferenceEquals(strLHS, strRHS)
         IsEqual := TRUE
     ELSEIF RuntimeState.Exact
-        IsEqual := String.Equals(strLHS , strRHS)
+        IF RuntimeState.Dialect == XSharpDialect.FoxPro
+            // VFP pads the shorter string with blanks, so "L3 " = "L3" is TRUE with SET EXACT ON
+            IsEqual := ExactStringHelpers.EqualsIgnoringTrailingBlanks(strLHS, strRHS)
+        ELSE
+            IsEqual := String.Equals(strLHS , strRHS)
+        ENDIF
     ELSEIF strLHS != NULL .AND. strRHS != NULL
         lengthRHS := strRHS:Length
         IF lengthRHS == 0
@@ -41,7 +46,11 @@ FUNCTION  __StringNotEquals(strLHS AS STRING, strRHS AS STRING) AS LOGIC
     IF Object.ReferenceEquals(strLHS, strRHS)
         notEquals := FALSE
     ELSEIF RuntimeState.Exact
-        notEquals := !String.Equals(strLHS , strRHS)
+        IF RuntimeState.Dialect == XSharpDialect.FoxPro
+            notEquals := !ExactStringHelpers.EqualsIgnoringTrailingBlanks(strLHS, strRHS)
+        ELSE
+            notEquals := !String.Equals(strLHS , strRHS)
+        ENDIF
     ELSEIF strLHS != NULL .AND. strRHS != NULL
         // shortcut: chec first char
         lengthRHS := strRHS:Length
@@ -115,7 +124,8 @@ FUNCTION __FieldGetWa( area AS USUAL, fieldName AS STRING ) AS USUAL
 /// <exclude />
 [NeedsAccessToLocals(FALSE)];
 FUNCTION __FieldGetWa2(wa AS STRING, fldName AS STRING, lAllowUndeclared AS LOGIC) AS USUAL
-LOCAL nArea := VoDbGetSelect(wa) AS DWORD
+    LOCAL nArea := VoDbGetSelect(wa) AS DWORD
+    LOCAL err := NULL as Error
     IF nArea != 0
         RETURN __FieldGetWa(wa, fldName)
     ENDIF
@@ -123,17 +133,24 @@ LOCAL nArea := VoDbGetSelect(wa) AS DWORD
         return IVarGet(uLocal, fldName)
     ENDIF
     local ok as LOGIC
+    local ex := NULL as Exception
     IF XSharp.MemVar.LocalFind("SELF", out uLocal, out var _)
         local oLocal := uLocal as object
         try
             var ivar := (OBJECT) IVarGet(oLocal, wa)
             // we do not use IVarGet because we also want to support static fields and properties
             var res := _GetValue(ivar:GetType(), ivar)
-        if ok
-            return res
-        endif
-        catch as Exception
-            nop
+            if ok
+                return res
+            endif
+            err := Error{EG_NOVAR, nameof(fldName), ErrString(EG_NOVAR) + ": " + fldName}
+            err:FuncSym := __function__
+            err:ArgNum := 2
+            err:Args := <OBJECT>{wa, fldName}
+            THROW err
+
+        catch e as Exception
+            ex := e
         end try
     ENDIF
     if (lAllowUndeclared)
@@ -154,14 +171,26 @@ LOCAL nArea := VoDbGetSelect(wa) AS DWORD
     IF Globals.Get(wa, OUT var uGlobal)
         return IVarGet(uGlobal, fldName)
     ENDIF
+    if ex != null
+        throw ex
+    endif
 
-    VAR err := Error{EG_NOVAR, nameof(wa), ErrString(EG_NOVAR) + ": " + wa}
+    err := Error{EG_NOVAR, nameof(wa), ErrString(EG_NOVAR) + ": " + wa}
     err:FuncSym := __function__
     err:ArgNum := 2
     err:Args := <OBJECT>{wa, fldName}
     THROW err
     LOCAL FUNCTION _GetValue(oType as System.Type, oObject as object) as USUAL
         ok := TRUE
+        if oObject is IDynamicProperties var oDynamic
+            try
+                return oDynamic:NoIvarGet(fldName)
+            CATCH as Exception
+                ok := FALSE
+                RETURN NIL
+            end try
+        endif
+
         var mem := OOPHelpers.GetFieldOrProperty(oType, fldName)
         if mem is FieldInfo var fld
             if ! fld:IsPublic
@@ -215,6 +244,7 @@ FUNCTION __FieldSetWa( area AS USUAL, fieldName AS STRING, uValue AS USUAL ) AS 
 [NeedsAccessToLocals(FALSE)];
 FUNCTION __FieldSetWa2(wa AS STRING, fldName AS STRING, uValue AS USUAL,lAllowUndeclared AS LOGIC) AS USUAL
     LOCAL nArea := VoDbGetSelect(wa) AS DWORD
+    LOCAL err := NULL as Error
     IF nArea != 0
         LOCAL nOldArea := RuntimeState.CurrentWorkarea AS DWORD
         TRY
@@ -271,13 +301,20 @@ FUNCTION __FieldSetWa2(wa AS STRING, fldName AS STRING, uValue AS USUAL,lAllowUn
     IF Globals.Get(wa, OUT var uGlobal)
         return IVarPut(uGlobal, fldName, uValue)
     ENDIF
-
-    VAR err := Error{EG_NOVAR, nameof(wa), ErrString(EG_NOVAR) + ": " + wa}
+    err := Error{EG_NOVAR, nameof(wa), ErrString(EG_NOVAR) + ": " + wa}
     err:FuncSym := __function__
     err:ArgNum := 2
     err:Args := <OBJECT>{wa, fldName}
     THROW err
     LOCAL FUNCTION _SetValue(oType as System.Type, oObject as object, uValue as USUAL) as LOGIC
+        if oObject is IDynamicProperties var oDynamic
+            TRY
+                oDynamic:NoIvarPut(fldName, uValue)
+                return true
+            CATCH as Exception
+                return false
+            END TRY
+        endif
         var mem := OOPHelpers.GetFieldOrProperty(oType, fldName)
         if mem is FieldInfo var fld
             var oValue := OOPHelpers.ValueConvert(uValue, fld:FieldType)
@@ -499,3 +536,30 @@ FUNCTION __UsualEnumerator(u IN USUAL) AS ARRAY
     VAR error := __Usual.ConversionError("ARRAY",TYPEOF(ARRAY),u)
     error:Description := "The usual value cannot be enumerated because it does not contain an array"
     THROW error
+
+
+/// <summary>String comparison that follows the VFP rules for SET EXACT ON.</summary>
+INTERNAL STATIC CLASS ExactStringHelpers
+
+    // VFP pads the shorter string with blanks before comparing, so the trailing blanks
+    // of both strings do not count. Only blanks: a Chr(0) or a tab is a character.
+    INTERNAL STATIC METHOD EqualsIgnoringTrailingBlanks(strLHS AS STRING, strRHS AS STRING) AS LOGIC
+        LOCAL nLHS, nRHS AS INT
+        IF strLHS == NULL .OR. strRHS == NULL
+            RETURN strLHS == NULL .AND. strRHS == NULL
+        ENDIF
+        nLHS := LengthWithoutTrailingBlanks(strLHS)
+        nRHS := LengthWithoutTrailingBlanks(strRHS)
+        RETURN nLHS == nRHS .AND. String.CompareOrdinal(strLHS, 0, strRHS, 0, nLHS) == 0
+    END METHOD
+
+    INTERNAL STATIC METHOD LengthWithoutTrailingBlanks(strValue AS STRING) AS INT
+        LOCAL nLength AS INT
+        nLength := strValue:Length
+        DO WHILE nLength > 0 .AND. strValue[nLength - 1] == c' '
+            nLength--
+        ENDDO
+        RETURN nLength
+    END METHOD
+
+END CLASS

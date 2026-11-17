@@ -1,17 +1,20 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project>
 <PropertyGroup >
-	<MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
     <XmlDocFolder Condition="'$(Configuration)' == 'Documentation'">$(SolutionDir)Docs\</XmlDocFolder>
     <XmlDocFolder Condition="'$(Configuration)' == 'DocChinese'">$(SolutionDir)DocChinese\</XmlDocFolder>
     <XmlDocFolder Condition="'$(Configuration)' == 'DocSpanish'">$(SolutionDir)DocSpanish\</XmlDocFolder>
-    <PreBuildEvent>copy $(XmlDocFolder)*.xml $(ProjectDir) &gt; nul</PreBuildEvent>
-    <PostBuildEvent>erase $(ProjectDir)*.Xml</PostBuildEvent>
-    <RunPostBuildEvent>Allways</RunPostBuildEvent>
+	
     <DefineConstants>$(DefineConstants);DOCUMENTATION</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="$(Configuration.Contains('Doc'))">
+    <PreBuildEvent>copy $(XmlDocFolder)*.xml $(MSBuildProjectDirectory) &gt; nul</PreBuildEvent>
+    <PostBuildEvent>erase $(MSBuildProjectDirectory)\*.Xml</PostBuildEvent>  
+    <RunPostBuildEvent>Allways</RunPostBuildEvent>
     <DocumentationFile>$(AssemblyName).Xml</DocumentationFile>
     <DefineConstants>$(DefineConstants);DOC</DefineConstants>
+    <EmitDebugInformation>false</EmitDebugInformation>
+	<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
   </PropertyGroup>
 </Project>

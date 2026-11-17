@@ -223,15 +223,13 @@ internal class SqlDbOrder inherit SqlDbObject
         else
             local cFirst := null, cLast := null as string
             if self:TopScope != null
-                seekInfo:Value    := self:TopScope
-                seekInfo:SoftSeek := true
-                cFirst := self:SeekExpression(seekInfo)
+                cFirst := self:RangeExpression(self:TopScope, false)
             endif
             if self:BottomScope != null
-                seekInfo:Value    := self:BottomScope
-                seekInfo:SoftSeek := true
-                seekInfo:Last     := true
-                cLast := self:SeekExpression(seekInfo)
+                // The bottom scope is an upper bound: keys up to (and starting with) the
+                // bottom value. Building it like a soft seek used to produce a second lower
+                // bound instead, so a range scope selected everything from the bottom value on.
+                cLast := self:RangeExpression(self:BottomScope, true)
             endif
             if String.IsNullOrEmpty(cFirst)
                 return cLast
@@ -244,33 +242,42 @@ internal class SqlDbOrder inherit SqlDbObject
     end method
 
     method SeekExpression(seekInfo as DbSeekInfo) as string
-        local cComp as string
-        local cWhereClause as string
         if seekInfo:SoftSeek
-            if self:Descending
-                cComp := " <= "
-            else
-                cComp := " >= "
-            endif
-        else
-            cComp := " = "
+            return self:RangeExpression(seekInfo:Value, false)
         endif
-        if seekInfo:Value is string var strValue
+        return self:KeyCondition(seekInfo:Value, false, " = ")
+    end method
+
+    /// <summary>
+    /// Condition for all keys on one side of oValue in the order's direction (a key that
+    /// starts with oValue counts as matching). The lower bound (lUpper FALSE) is what a soft
+    /// seek and a top scope need, the upper bound is what a bottom scope needs.
+    /// </summary>
+    method RangeExpression(oValue as object, lUpper as logic) as string
+        // For a descending order the "lower" end in order sense holds the larger keys.
+        local cComp := iif(lUpper != self:Descending, " <= ", " >= ") as string
+        return self:KeyCondition(oValue, true, cComp)
+    end method
+
+    private method KeyCondition(oValue as object, lSoftSeek as logic, cComp as string) as string
+        local cWhereClause as string
+        oValue := SELF:SeekValue(oValue)
+        if oValue is string var strValue
             var strLen := strValue:Length
+            // Also for a value of the full key length: e.g. a relation seek on REF_NR+DTOS(DATUM)
+            // as [REF_NR] = ... AND <date part> = ... is an index seek, the concatenation is not.
+            var cColumnCondition := SELF:BuildColumnAwareCondition(strValue, lSoftSeek, cComp)
+            if cColumnCondition != null
+                return cColumnCondition
+            endif
             if strLen < self:KeyLength
-                var cColumnCondition := SELF:BuildColumnAwareCondition(strValue, seekInfo:SoftSeek, cComp)
-                if cColumnCondition != null
-                    return cColumnCondition
-                endif
                 // Fallback for keys we can't map onto individual columns (functions in the key
                 // expression, unknown column metadata, ...): the original, always-correct
                 // condition against the fully concatenated SQLKey expression. SQL Server cannot
                 // use a normal index to seek into this - it has to compute the concatenation for
                 // every row - so prefer the column-aware path above whenever possible.
-                if (! seekInfo:SoftSeek)
-                    cComp := " like "
-                    strValue += "%"
-                    cWhereClause := self:SQLKey
+                if (! lSoftSeek)
+                    return self:SQLKey + " like " + Provider:LikePattern(strValue)
                 else
                     cWhereClause := Provider:GetFunction("SUBSTR(%1%,%2%,%3%)")
                     cWhereClause := cWhereClause:Replace("%1%", self:SQLKey)
@@ -282,7 +289,7 @@ internal class SqlDbOrder inherit SqlDbObject
             endif
             cWhereClause += cComp + Functions.XsValueToSqlValue(strValue)
         else
-            cWhereClause := self:SQLKey+cComp+Functions.XsValueToSqlValue(seekInfo:Value)
+            cWhereClause := self:SQLKey+cComp+Functions.XsValueToSqlValue(oValue)
         endif
         return cWhereClause
     end method
@@ -300,58 +307,178 @@ internal class SqlDbOrder inherit SqlDbObject
     /// Returns NULL when the key has functions in it, or column metadata/widths can't be
     /// determined - callers must fall back to the concatenation-based condition in that case.
     /// </remarks>
-    private method BuildColumnAwareCondition(strValue as string, lSoftSeek as logic, cRangeComp as string) as string
-        if self:HasFunctions
+    /// <summary>
+    /// The widths of the parts of a key that concatenates columns, DTOS() and STR() parts (see
+    /// SqlDbExpression.GetKeyTerms()), NULL for other keys or when a column is not known.
+    /// </summary>
+    private method _KeyPartWidths() as List<int>
+        var terms := self:DbExpression:KeyTerms
+        if terms == null .or. terms:Count == 0
             return null
         endif
-        var columns := self:ColumnList
-        if columns == null .or. columns:Count == 0
-            return null
-        endif
-        var widths := List<int>{}
-        foreach var cCol in columns
-            var cName := cCol:Trim(<char>{'[',']','"','`'})
-            var oCol := self:RDD:TableColumns:FirstOrDefault({ c => String.Compare(c:Name, cName, true) == 0 })
-            if oCol == null
-                return null
+        var widths  := List<int>{}
+        foreach var oTerm in terms
+            if oTerm:IsDate
+                widths:Add(8)
+            elseif oTerm:Width > 0
+                widths:Add((int) oTerm:Width)
+            else
+                var cName := oTerm:Column:Trim(<char>{'[',']','"','`'})
+                var oCol := self:RDD:TableColumns:FirstOrDefault({ c => String.Compare(c:Name, cName, true) == 0 })
+                if oCol == null
+                    return null
+                endif
+                widths:Add((int) oCol:Length)
             endif
-            widths:Add((int) oCol:Length)
+        next
+        return widths
+    end method
+
+    /// <summary>
+    /// A seek or scope value as DBFCDX and ADS compare it: a string longer than the key is cut to
+    /// the key length.
+    /// </summary>
+    /// <remarks>
+    /// ERP code builds seek values from the field lengths: for a key with STR(MENGE,5,0) and an
+    /// N(8,0) field (or an int column, reported with 10 digits) the value is longer than the key.
+    /// Compared as the whole key text, such a seek read every row of the tag (29,000 pages of a
+    /// price table per seek), and a soft seek or SeekLast missed keys that DBFCDX finds. Only for keys
+    /// whose part widths are known and agree with the key length evaluated on a record.
+    /// </remarks>
+    method SeekValue(oValue as object) as object
+        if oValue is string var strValue .and. self:KeyLength > 0 .and. strValue:Length > self:KeyLength
+            var widths := SELF:_KeyPartWidths()
+            if widths != null .and. widths:Sum() == self:KeyLength
+                return strValue:Substring(0, self:KeyLength)
+            endif
+        endif
+        return oValue
+    end method
+
+    private method BuildColumnAwareCondition(strValue as string, lSoftSeek as logic, cRangeComp as string) as string
+        // The parts of a key that concatenates columns and DTOS(column); a DTOS() part is
+        // compared as its yyyymmdd text, which is what the key holds at that position.
+        var terms := self:DbExpression:KeyTerms
+        var widths := SELF:_KeyPartWidths()
+        if widths == null
+            return null
+        endif
+        var columns := List<string>{}
+        foreach var oTerm in terms
+            columns:Add(oTerm:SqlExpr)
         next
 
-        var sb := StringBuilder{}
+        // Split the value over the key columns: every column the value fully covers gets its
+        // full-width part, the column where the value ends (if any) gets the remaining prefix.
+        var parts    := List<string>{}
         var cRemaining := strValue
         for var i := 0 upto columns:Count-1
             if cRemaining:Length == 0
                 exit
             endif
-            var nWidth   := widths[i]
-            var cColExpr := columns[i]
-            if sb:Length > 0
-                sb:Append(SqlDbProvider.AndClause)
-            endif
+            var nWidth := widths[i]
             if cRemaining:Length >= nWidth
-                // The seek value fully covers this column - pin it down with equality and
-                // carry on with whatever's left over into the next column.
-                var cPart := cRemaining:Substring(0, nWidth)
-                sb:Append(cColExpr + " = " + Functions.XsValueToSqlValue(cPart))
+                parts:Add(cRemaining:Substring(0, nWidth))
                 cRemaining := cRemaining:Substring(nWidth)
             else
-                // Partial match on this column - the same range/prefix logic the concatenation
-                // fallback uses, just scoped to this one column so the index can still be used.
-                if !lSoftSeek
-                    sb:Append(cColExpr + " like " + Functions.XsValueToSqlValue(cRemaining + "%"))
-                else
-                    var cSubstr := Provider:GetFunction("SUBSTR(%1%,%2%,%3%)")
-                    cSubstr := cSubstr:Replace("%1%", cColExpr):Replace("%2%","1"):Replace("%3%", cRemaining:Length:ToString())
-                    sb:Append(cSubstr + cRangeComp + Functions.XsValueToSqlValue(cRemaining))
-                endif
+                parts:Add(cRemaining)
                 cRemaining := ""
             endif
         next
-        if sb:Length == 0
+        if parts:Count == 0 .or. cRemaining:Length > 0
+            // longer than the key: leave it to the condition on the whole key text
             return null
         endif
+
+        var sb := StringBuilder{}
+        if !lSoftSeek
+            // Pin down every fully covered column with equality, and match the partial one
+            // (if any) as a prefix - the same logic the concatenation fallback uses, just scoped
+            // to the individual columns so the index can still be used.
+            for var i := 0 upto parts:Count-1
+                if sb:Length > 0
+                    sb:Append(SqlDbProvider.AndClause)
+                endif
+                if parts[i]:Length >= widths[i]
+                    sb:Append(SELF:_PartCompare(terms[i], columns[i], " = ", parts[i]))
+                else
+                    sb:Append(columns[i] + " like " + Provider:LikePattern(parts[i]))
+                endif
+            next
+        else
+            // A range on a concatenated key is a lexicographic comparison of the columns:
+            //   (c1 > v1) OR (c1 = v1 AND c2 > v2) OR ... OR (c1 = v1 AND ... AND cn >= vn)
+            // Pinning the leading columns down with equality instead would confine the range
+            // to the rows that share the leading column values, so e.g. a soft seek past the
+            // last key of such a group would find nothing instead of the next group.
+            var cStrictComp := cRangeComp:Replace("=", "")
+            for var i := 0 upto parts:Count-1
+                if i > 0
+                    sb:Append(" OR ")
+                endif
+                sb:Append("(")
+                for var j := 0 upto i-1
+                    sb:Append(SELF:_PartCompare(terms[j], columns[j], " = ", parts[j]))
+                    sb:Append(SqlDbProvider.AndClause)
+                next
+                var cComp := iif(i == parts:Count-1, cRangeComp, cStrictComp)
+                if parts[i]:Length < widths[i]
+                    // Compare only the prefix of the column that the value actually covers (only
+                    // the last part can be shorter, so this is the inclusive bound). SUBSTRING(c,1,n)
+                    // would keep the server from seeking on the index: a soft seek in a descending
+                    // order of 3.8 million orders took 0.7 to 1.7 seconds. The same conditions:
+                    //   SUBSTRING(c,1,n) >= v   is   c >= v
+                    //   SUBSTRING(c,1,n) <= v   is   c < v OR c LIKE 'v%'
+                    if cRangeComp:Contains(">")
+                        sb:Append(columns[i] + " >= " + Functions.XsValueToSqlValue(parts[i]))
+                    else
+                        sb:Append("(" + columns[i] + " < " + Functions.XsValueToSqlValue(parts[i]) + ;
+                            SqlDbProvider.OrClause + columns[i] + " like " + Provider:LikePattern(parts[i]) + ")")
+                    endif
+                else
+                    sb:Append(SELF:_PartCompare(terms[i], columns[i], cComp, parts[i]))
+                endif
+                sb:Append(")")
+            next
+            if parts:Count > 1
+                sb:Insert(0, "(")
+                sb:Append(")")
+            endif
+        endif
         return sb:ToString()
+    end method
+
+    /// <summary>
+    /// cExpr cComp cValue for a key part the value covers completely. A STR() part compares the number,
+    /// it is sorted by the number (see SqlDbExpression.GetKeyTerms()): [MENGE] = 1 instead of
+    /// STR([MENGE],5,0) = '    1', which also lets the server seek on an index with MENGE.
+    /// </summary>
+    private method _PartCompare(oTerm as SqlDbKeyTerm, cExpr as string, cComp as string, cValue as string) as string
+        local nValue as decimal
+        if oTerm:Width > 0 .and. Decimal.TryParse(cValue:Trim(), System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint, ;
+            System.Globalization.CultureInfo.InvariantCulture, out nValue)
+            return oTerm:Column + cComp + nValue:ToString(System.Globalization.CultureInfo.InvariantCulture)
+        endif
+        if oTerm:IsDate .and. String.IsNullOrWhiteSpace(cValue)
+            // DTOS() of an empty date is blank in the key, but the server has NULL or (without
+            // UseNulls) 0001-01-01 (see _EmptyDateValue()), whose yyyymmdd text never equals the blanks:
+            // a seek on a key with an empty date part found nothing. Both sort first, like the blanks.
+            if !SELF:RDD:Connection:UseNulls
+                return cExpr + cComp + "'00010101'"
+            endif
+            switch cComp:Trim()
+            case "="
+            case "<="
+                return oTerm:Column + " IS NULL"
+            case ">"
+                return oTerm:Column + " IS NOT NULL"
+            case "<"
+                return "1 = 0"
+            otherwise
+                return "1 = 1"
+            end switch
+        endif
+        return cExpr + cComp + Functions.XsValueToSqlValue(cValue)
     end method
 
 end class

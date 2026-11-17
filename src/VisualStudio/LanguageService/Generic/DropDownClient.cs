@@ -174,6 +174,9 @@ namespace XSharp.LanguageService
             });
         }
 
+        /// <summary>The role of the editor in the preview of the Code Search window.</summary>
+        private const string SearchPreviewRole = "SEARCH_RESULT_PREVIEW";
+
         internal void addTextView(ITextView textView, IVsTextView textViewAdapter)
         {
             if (!_textViews.ContainsKey(textView))
@@ -185,9 +188,10 @@ namespace XSharp.LanguageService
                 textView.Closed += TextView_Closed;
                 if (textView.Caret != null)
                     textView.Caret.PositionChanged += Caret_PositionChanged;
-                StartOnIdleAsync(textViewAdapter).FireAndForget();
-
-
+                // The preview of the Code Search (Ctrl+T) must not take the focus (InitCaret sends it to the new
+                // view when the file is already open in an editor): the keys typed for the search would change the code.
+                if (!textView.Roles.Contains(SearchPreviewRole))
+                    StartOnIdleAsync(textViewAdapter).FireAndForget();
             }
         }
         // This moves the caret to trigger initial drop down load
@@ -269,7 +273,8 @@ namespace XSharp.LanguageService
                 _activeView = _textViews.Values.FirstOrDefault();
             }
             int newLine = e.NewPosition.BufferPosition.GetContainingLine().LineNumber;
-            if (newLine != _lastLine && _dropDownBar != null && _members.Count > 0)
+            // A changed option (Tools/Options) also rebuilds the combos when the editor gets the focus back
+            if ((newLine != _lastLine || _settings.Changed) && _dropDownBar != null && _members.Count > 0)
             {
                 SelectContainingMember(newLine);
                 _lastLine = newLine;
@@ -388,35 +393,28 @@ namespace XSharp.LanguageService
             {
                 parentType = selectedElement as XSourceTypeSymbol;
             }
+            var nothingChanged = _file.ContentHashCode == this._lastHashCode && !_settings.Changed && !relatedFilesChanged;
+            if (!nothingChanged)
+            {
+                // This reloads the members of the previously selected type
+                // and sets _lastType to that type
+                reloadCombos(newLine);
+            }
             bool newType = true;
             if (parentType != null && _lastType != null && parentType.FullName == _lastType.FullName)
             {
                 newType = false;
             }
-            var nothingChanged = _file.ContentHashCode == this._lastHashCode && !_settings.Changed && !relatedFilesChanged;
-            // When the file has not changed and external files also have no changed
-            // and when we are on the same type
-            // then simply select another member
-            if (nothingChanged)
+            _selectedTypeIndex = findSelectedType(parentType);
+            if (newType && _settings.CurrentTypeOnly)
             {
-                _selectedTypeIndex = findSelectedType(parentType);
-                if (newType && _settings.CurrentTypeOnly)
-                {
-                    // new Type and we only show members from current type
-                    loadMemberCombos(_selectedTypeIndex);
+                // new Type and we only show members from current type
+                loadMemberCombos(_selectedTypeIndex);
 
-                }
-                _selectedMemberIndex = findSelectedMember(selectedElement);
-                _saveSettings();
-                refreshCombos();
             }
-            else
-            {
-                reloadCombos(newLine);
-                _selectedMemberIndex = findSelectedMember(selectedElement);
-                _selectedTypeIndex = findSelectedType(parentType);
-                refreshCombos();
-            }
+            _selectedMemberIndex = findSelectedMember(selectedElement);
+            _saveSettings();
+            refreshCombos();
             _lastHashCode = _file.ContentHashCode;
 #if XDEBUG
             _lastSelected = selectedElement;
@@ -555,7 +553,6 @@ namespace XSharp.LanguageService
                 if (eltType.Range.StartLine <= nLine && eltType.Range.EndLine >= nLine)
                 {
                     _selectedTypeIndex = nSelect;
-                    _lastType = eltType;
                 }
             }
             return;
@@ -581,6 +578,8 @@ namespace XSharp.LanguageService
             if (selectedType >= _types.Count)
                 return;
             var currentType = (XSourceTypeSymbol)(selectedType > -1 ? _types[selectedType].Entity : _types[0].Entity);
+            // remember the type whose members are loaded, SelectContainingMember() compares with it
+            _lastType = currentType;
             var globalType = _file.GlobalType;
             DROPDOWNFONTATTR ft;
             bool hasPartial = !currentType.IsGlobal && currentType.IsPartial;
@@ -774,13 +773,14 @@ namespace XSharp.LanguageService
             {
                 nLine = _activeView.Caret.Position.BufferPosition.GetContainingLine().LineNumber;
             }
+            // take over changed options before loading, so the combos are built with them
+            _saveSettings();
             loadTypeCombos(nLine);
             _selectedTypeIndex = temp;
             temp = _selectedMemberIndex;
             loadMemberCombos(_selectedTypeIndex);
             _selectedMemberIndex = temp;
             _lastHashCode = _file.ContentHashCode;
-            _saveSettings();
             refreshCombos();
         }
 

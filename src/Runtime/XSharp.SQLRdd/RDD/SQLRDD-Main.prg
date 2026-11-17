@@ -150,6 +150,8 @@ partial class SQLRDD inherit Workarea
             if !self:_oTd:HasRecnoColumn
                 throw Exception{"RecnoColumn is required for table " + info:FileName}
             endif
+            // its read statements may be answered from the result cache (SqlDbConnection.ResultCacheMs)
+            _command:CacheTable := self:_oTd:RealName
         endif
         local aUpdatableColumns := null as HashSet<string>
         if _oTd:HasUpdatableColumns
@@ -279,7 +281,9 @@ partial class SQLRDD inherit Workarea
         endif
         var lResult := SELF:GoCold()
         if lResult
-            var key := (dword) self:_builder:GetNextKey()
+            // With a recno column the insert below returns the new record number; asking the server
+            // for MAX(recno) first only cost a round trip per Append().
+            var key := iif(self:_recnoColumNo != -1, 0U, (dword) self:_builder:GetNextKey())
             var row := self:DataTable:NewRow()
             self:DataTable:Rows:Add(row)
             if _emptyValues == null
@@ -293,11 +297,24 @@ partial class SQLRDD inherit Workarea
                     row[c] := SELF:_HandleNullDate(values[c:Ordinal],c)
                 endif
             next
-            self:_ExecuteInsertStatement(row)
+            if !self:_ExecuteInsertStatement(row)
+                // the error is reported, stay where we were (buffer and EOF state unchanged)
+                self:DataTable:Rows:Remove(row)
+                return false
+            endif
+            self:_eofPending := false
+            // The new row does not belong at the end of the buffered slice of the order.
+            self:_bufferContiguous := false
             row:AcceptChanges()
-            _updatedRecNos:Add((int)row[self:_recnoColumNo])
+            if self:_recnoColumNo != -1
+                key := Convert.ToUInt32(row[self:_recnoColumNo])
+            endif
+            _updatedRecNos:Add((int) key)
             SELF:RowNumber := SELF:DataTable:Rows:Count
             self:_serverReccount += 1
+            if self:_tableReccountValid
+                self:_tableReccount := Math.Max(self:_tableReccount, key)
+            endif
             SELF:_SetBOF(FALSE)
             SELF:_SetEOF(FALSE)
             self:GoHot()
@@ -311,6 +328,22 @@ partial class SQLRDD inherit Workarea
     /// <remarks>
     /// When the area is in Tablemode, and no data has been read before, then this will trigger fetching the data from the database
     /// </remarks>
+    /// <summary>Convert a decimal column value to what the field type returns under DBF/ADS.</summary>
+    /// <remarks>
+    /// The DBF and ADS RDDs return a numeric field as a DbFloat that carries the field's length
+    /// and decimals, and code that formats values for display (browsers, FieldSpec pictures)
+    /// relies on those. A bare System.Decimal carries no such information, so e.g. a N(8,2)
+    /// value showed up as "745,6000000000".
+    /// </remarks>
+    private method _DecimalToFieldValue(decValue as Decimal, col as RddFieldInfo) as object
+        if col:Decimals == 0
+            return Convert.ToInt64(decValue)
+        endif
+        if col:FieldType == DbFieldType.Number
+            return DbFloat{(real8) decValue, col:Length, col:Decimals}
+        endif
+        return decValue
+
     override method GetValue(nFldPos as int) as object
         if self:CurrentRow == null
             return null
@@ -339,9 +372,7 @@ partial class SQLRDD inherit Workarea
                 endif
             endif
             if result is Decimal var decValue
-                if col:Decimals == 0
-                    result := Convert.ToInt64(decValue)
-                endif
+                result := SELF:_DecimalToFieldValue(decValue, col)
             endif
             if result == DBNull.Value
                 // A DBF-style field has no notion of a per-cell SQL NULL, only "blank" - and
@@ -356,6 +387,8 @@ partial class SQLRDD inherit Workarea
                 result := _phantomRow[nFldPos]
                 if result is DateTime .and. self:_Fields[nFldPos]:FieldType == DbFieldType.Date
                     result := DbDate{0,0,0}
+                elseif result is Decimal var decBlank
+                    result := SELF:_DecimalToFieldValue(decBlank, col)
                 endif
             elseif _creatingIndex .and. result is string var strResult
                 result := strResult:PadRight(_Fields[nFldPos]:Length,' ')
@@ -401,6 +434,7 @@ partial class SQLRDD inherit Workarea
                     _updatedRecNos:Add((int)row[self:_recnoColumNo])
                 endif
 
+                oValue := SELF:_FixedWidthValue(nFldPos-1, oValue)
                 row[nFldPos-1] := SELF:_HandleNullDate(oValue,self:DataTable:Columns[nFldPos-1])
                 result := true
                 SELF:GoHot()
@@ -430,34 +464,43 @@ partial class SQLRDD inherit Workarea
         var lWasHot := (current != self:_phantomRow) .and. (current:RowState != DataRowState.Unchanged .or. _updatedRecNos:Count > 0)
         local lOk := TRUE as logic
         if lWasHot .and. self:DataTable != null
+            lOk := SELF:_WritePendingRows()
+        endif
+        return lOk
+    end method
 
-            // Check file lock
-            var dbLockInfo := DbLockInfo{}
-            dbLockInfo:RecId := 0
-            var myLock := false
-            var otherLock := false
-            SELF:CheckLock(dbLockInfo, StringBuilder{}, myLock, otherLock)
-            if (otherLock)
-                return false
+    /// <summary>Write all rows queued in _updatedRecNos to the server.</summary>
+    private method _WritePendingRows() as logic
+        local lOk := TRUE as logic
+        // _UpdateRow() checks for other users' locks on the record and on the whole file
+        // (recno 0) in a single query, so no separate file-lock check is needed here.
+        foreach var rowId in _updatedRecNos
+            lOk := self:_UpdateRow(rowId)
+            if !lOk
+                exit
             endif
-
-            foreach var rowId in _updatedRecNos
-                lOk := self:_UpdateRow(rowId)
-                if !lOk
-                    exit
-                endif
-            next
-            if lOk
-                self:DataTable:AcceptChanges()
-                self:UnLock(0)
-            else
-                self:DataTable:RejectChanges()
-            endif
-            _updatedRecNos:Clear()
-            // A write may have changed the true row count (insert/physical delete) - force a
-            // real requery here rather than trusting a cached pre-write value.
+        next
+        if lOk
+            self:DataTable:AcceptChanges()
+        else
+            self:DataTable:RejectChanges()
+        endif
+        _updatedRecNos:Clear()
+        // Like Commit under DBF/ADS, keep the caller's locks: only release the locks that
+        // _UpdateRow() took itself for this write. Releasing every lock here (UnLock(0)) also
+        // made UnLock() write the still-listed rows a second time, which re-locked them -
+        // leaving a lock behind that blocked other users until the next unlock.
+        foreach var nRecNo in _autoLockedRecNos
+            self:_DeleteLockRows(nRecNo)
+        next
+        _autoLockedRecNos:Clear()
+        // An insert, a delete or an update of a column the count depends on may have changed
+        // the true row count: the next RecCount requeries it. Other updates keep it valid -
+        // e.g. a loop that locks, updates and unlocks record by record would otherwise run a
+        // COUNT(*) for every single record, since RLock() checks the record against RecCount.
+        if self:_countMayHaveChanged
             self:_serverReccountValid := false
-            self:_GetRecCount()
+            self:_countMayHaveChanged := false
         endif
         return lOk
     end method
@@ -584,6 +627,11 @@ partial class SQLRDD inherit Workarea
         if Connection?:Provider is null .or. !self:Connection:IsOpen .or. _oTd == null
             return recNos:ToArray()
         endif
+        if !self:Connection:UseLocks
+            // No lock table entries are ever written without UseLocks. Code that asks for the
+            // lock list after every movement (RLockList/IsLocked()) paid a query each time.
+            return recNos:ToArray()
+        endif
         try
             var sb := StringBuilder{}
             sb:AppendLine("select recno from " + SqlDbConnection.LockTableName)
@@ -618,9 +666,14 @@ partial class SQLRDD inherit Workarea
         if !self:_ForceOpen()
             return false
         endif
+        // VO resets FOUND to FALSE after a record movement
+        SELF:_Found := FALSE
+        // Reloading the buffer below discards pending FieldPut()s, so write them first (DBF does too).
+        SELF:GoCold()
         SELF:_outsideOrder := FALSE
-        SELF:_ClearTable()
-        SELF:_FetchPage( 1)
+        SELF:_eofPending := FALSE
+        SELF:_anchorWhere := ""
+        SELF:_LoadBufferAt(0)
         SELF:RowNumber  := 1
         SELF:_Top       := TRUE
         SELF:_Bottom    := FALSE
@@ -628,7 +681,12 @@ partial class SQLRDD inherit Workarea
         SELF:_SetBOF(FALSE)
         // Apply Filter and SetDeleted
         VAR result := SELF:SkipFilter(1)
+        // the filter hides every record: keep BOF as SkipFilter() set it, as DBF does
+        var lHidden := SELF:_EoF .and. SELF:_BoF
         SELF:_CheckEofBof()
+        if lHidden
+            SELF:_SetBOF(TRUE)
+        endif
         #ifdef TRACERDD
         System.Diagnostics.Debug.WriteLine("GoTop Result: {0}, RecCount {1}, Recno {2}, RowNumber {3}, EOF {4}, BOF {5}", result, _serverReccount, RecNo, RowNumber, EoF, BoF)
         #endif
@@ -643,37 +701,43 @@ partial class SQLRDD inherit Workarea
         if !self:_ForceOpen()
             return false
         endif
+        SELF:_Found := FALSE
+        // Reloading the buffer below discards pending FieldPut()s, so write them first (DBF does too).
+        SELF:GoCold()
         SELF:_outsideOrder := FALSE
+        SELF:_eofPending := FALSE
         SELF:_ClearTable()
-        // Route through the cached count instead of always querying directly - GoBottom() can
-        // be called many times in a row against unchanged data (e.g. Lister construction
-        // retrying GoTo(0) when it can't establish a valid position), and each direct query
-        // here used to pay for a fresh COUNT(*) every single time.
-        self:_GetRecCount()
-        local nMaxRecNo := self:_serverReccount as dword
-        var nPage       := nMaxRecNo / self:_oTd:PageSize
-        if SELF:RecCount % self:_oTd:PageSize != 0
-            nPage += 1
-        ENDIF
-        // For a large table, fetching the last page via the normal ascending, OFFSET-based
-        // query (_FetchPage) forces the server to walk/skip almost the entire ordered result -
-        // the further from the top, the worse. _FetchLastPage avoids that by sorting in
-        // reverse and asking for OFFSET 0 instead, which is always cheap. Only safe when the
-        // order isn't already descending (that would invert the reversal); falls back to the
-        // original approach for natural order, descending orders, or if it fails outright.
-        if self:CurrentOrder == null .or. !self:CurrentOrder:Descending
-            if !SELF:_FetchLastPage((INT) nPage)
-                SELF:_FetchPage((INT) nPage)
-            endif
-        else
-            SELF:_FetchPage((INT) nPage)
+        SELF:_anchorWhere := ""
+        // For a large table, fetching the last page via the normal OFFSET-based query forces
+        // the server to walk/skip almost the entire ordered result - the further from the top,
+        // the worse: OFFSET 3768900 in a descending order of 3.8 million orders did not finish
+        // within 30 seconds. _FetchLastPage avoids that by sorting in reverse and asking for
+        // OFFSET 0 instead, which is always cheap. Falls back to the OFFSET only if it fails.
+        // The count is only needed for the OFFSET (see _FetchLastPage()); it goes through the
+        // cached count - GoBottom() can be called many times in a row against unchanged data.
+        if !SELF:_FetchLastPage()
+            self:_GetRecCount()
+            SELF:_LoadBufferAt(SELF:_LastPageStart((long) self:_serverReccount))
         endif
         SELF:RowNumber  := SELF:RowCount
         SELF:_Top       := FALSE
         SELF:_Bottom    := TRUE
+        // SkipFilter() only moves while EOF and BOF are off: after a Skip() past the end, GoBottom()
+        // stayed on the last record of the order even when the filter hides it (GoTop() resets them too).
+        if SELF:RowCount > 0
+            SELF:_SetEOF(FALSE)
+            SELF:_SetBOF(FALSE)
+        endif
         // Apply Filter and SetDeleted
         VAR result := SELF:SkipFilter(-1)
-        SELF:_CheckEofBof()
+        if SELF:_EoF .and. SELF:_BoF
+            // the filter hides every record: EOF and BOF as in DBF, on the phantom record
+            // (_CheckEofBof() saw the first row and cleared both)
+            SELF:_GoToPhantom()
+            SELF:_SetBOF(TRUE)
+        else
+            SELF:_CheckEofBof()
+        endif
         #ifdef TRACERDD
         System.Diagnostics.Debug.WriteLine("GoBottom Result: {0}, RecCount {1}, Recno {2}, RowNumber {3}, EOF {4}, BOF {5}", result, _serverReccount, RecNo, RowNumber, EoF, BoF)
         #endif
@@ -690,41 +754,20 @@ partial class SQLRDD inherit Workarea
         endif
         LOCAL isOK := TRUE AS LOGIC
         SELF:GoCold()
-        IF nToSkip == 0
-            NOP
-        ELSE
-            var newRow := SELF:RowNumber + nToSkip
-            IF newRow > 0
-                if newRow <= SELF:RowCount
-                    SELF:RowNumber :=  newRow
-                    SELF:_SetEOF(FALSE)
-                ELSEIF SELF:_hasEOF
-                    SELF:RowNumber := 0
-                    SELF:_SetEOF(TRUE)
-                ELSE
-                    SELF:RowNumber :=  newRow
-                    SELF:_FetchPage(SELF:_currentPageNo +1)
-                    if SELF:RowNumber > SELF:RowCount
-                        // The page we just fetched turned out to be empty (we were already on
-                        // the last real row) - report EOF right away instead of leaving RowNumber
-                        // past the end with EOF still FALSE, which otherwise sits stale until a
-                        // second Skip() happens to see _hasEOF. In between, RecNo/CurrentRow
-                        // reflect the phantom row - e.g. nextrec()'s "IF EOF THEN GOTO(oldRecno)"
-                        // never fires on the first PgDn past the end, and the recno it captures
-                        // on the following call is the phantom row's blank value, not a real one.
-                        SELF:RowNumber := 0
-                        SELF:_SetEOF(TRUE)
-                    endif
-                endif
-            ELSE
-                IF SELF:_currentPageNo == 1
-                    isOK := SELF:GoTop()
-                    SELF:_SetBOF(TRUE)
-                    SELF:_currentPageNo := 1
-                ELSE
-                    SELF:_FetchPage(SELF:_currentPageNo -1)
-                ENDIF
+        IF nToSkip != 0 .AND. SELF:_eofPending
+            // On the phantom record after GoTo(0), with a buffer that does not end at the last
+            // record: moving forward stays at EOF (still pending, so a second Skip(1) does not read on
+            // behind the buffer), moving backward starts from the last record.
+            IF nToSkip > 0
+                RETURN TRUE
             ENDIF
+            SELF:_eofPending := FALSE
+            isOK := SELF:GoBottom()
+            IF isOK .AND. nToSkip < -1
+                isOK := SELF:_SkipInBuffer(nToSkip + 1)
+            ENDIF
+        ELSEIF nToSkip != 0
+            isOK := SELF:_SkipInBuffer(nToSkip)
         ENDIF
         #ifdef TRACERDD
         System.Diagnostics.Debug.WriteLine("SkipRaw Result: {0}, RecCount {1}, Recno {2}, RowNumber {3}, EOF {4}, BOF {5}", isOK, _serverReccount, RecNo, RowNumber, EoF, BoF)
@@ -734,14 +777,15 @@ partial class SQLRDD inherit Workarea
 
 
     OVERRIDE METHOD GoToId(oRec AS OBJECT) AS LOGIC
-	    LOCAL result AS LOGIC
+	    LOCAL result := FALSE AS LOGIC
 		TRY
             VAR nRec := Convert.ToUInt32( oRec )
             // CurrentRow is null when the table has never been successfully opened (the
             // phantom row is only built once a SELECT actually loaded a schema - see the
             // DataTable setter) - same case GetValue() already guards against above.
             if self:CurrentRow == null .or. oRec != self:CurrentRow[self:_recnoColumNo]
-                result := SELF:GoTo( (DWORD) nRec )
+                // GoTo() sets EOF/BOF itself (at the phantom record BOF as ADS does)
+                return SELF:GoTo( (DWORD) nRec )
             endif
 		CATCH ex AS Exception
 			SELF:_dbfError(ex, Subcodes.EDB_GOTO,Gencode.EG_DATATYPE,  "SQLRDD.GoToId",FALSE)
@@ -761,9 +805,14 @@ partial class SQLRDD inherit Workarea
         endif
         SELF:GoCold()
         IF nRec == 0
-            SELF:GoBottom()
-            RETURN SELF:Skip(1)
+            // DBF semantics: GoTo(0) positions on the phantom record (EOF) without any I/O.
+            // Browsers do this for every empty row they paint, so it must not cost a query.
+            // ADS sets BOF as well, as for any record number that does not exist.
+            SELF:_GoToPhantom()
+            SELF:_SetBOF(TRUE)
+            RETURN TRUE
         ENDIF
+        SELF:_eofPending := FALSE
         // Normal positioning, VO resets FOUND to FALSE after a recprd movement
         SELF:_Found := FALSE
         SELF:_outsideOrder := FALSE
@@ -781,14 +830,58 @@ partial class SQLRDD inherit Workarea
                     SELF:RowNumber := rowIndex
                     SELF:_SetEOF(FALSE)
                     SELF:_SetBOF(FALSE)
-                    SELF:_Found := TRUE
                     return true
                 endif
                 rowIndex++
             next
         endif
 
-        var found := SELF:_GotoRecord(nRec)
+        // Code that saves the record number, seeks elsewhere and goes back (or follows a
+        // relation) mostly just reads the record's fields afterwards. Its position in the order
+        // is only needed when something moves from it (Skip(), OrderKeyNo ...), see
+        // _EnsurePositioned(): load just the record by its recno. Looking the position up right
+        // away cost a ROW_NUMBER() over the order plus a whole page around the record.
+        // When the previous two GoTo() calls already loaded just one record this way, position fully:
+        // a browse that calls GoTo() for every row it paints then gets a page with the neighbouring
+        // rows instead of one query per row. (A single record left by an order change does not
+        // count - SetOrder() followed by GoTo(saved record) is the usual restore pattern.) Not after
+        // one: restoring a state and going to another record (SetOrder(), GoTo(saved), GoTo(new))
+        // is common in ERP code and cost a ROW_NUMBER() over the order each time.
+        local found as logic
+        var oLastError := SELF:Connection:LastException
+        if SELF:_tableMode == TableMode.Table .and. SELF:_recnoColumNo >= 0 .and. SELF:DataTable != null ;
+            .and. !(SELF:_lazyGotos >= 2 .and. !SELF:_bufferContiguous .and. SELF:RowCount <= 1)
+            var nLazy := SELF:_lazyGotos
+            var nFetched := SELF:_FetchSingleRecord(nRec)
+            found := nFetched == 1
+            if found
+                SELF:_lazyGotos := nLazy + 1
+            elseif nFetched == 0
+                // The record does not exist (e.g. LastRec()+1, saved at EOF and restored): EOF without
+                // looking it up again in the order. ADS sets BOF as well (DBFCDX only for an empty file).
+                // TRUE as in DBF: positioning on the phantom record succeeded. FALSE made the VO
+                // DbServer:GoTo() build and throw an error object every time.
+                SELF:_GoToPhantom()
+                SELF:_SetBOF(TRUE)
+                RETURN TRUE
+            else
+                found := SELF:_GotoRecord(nRec)
+            endif
+        else
+            found := SELF:_GotoRecord(nRec)
+        endif
+        if !found .and. SELF:_tableMode == TableMode.Table
+            // A failed query does not mean that the record does not exist (timeout, no permission ...)
+            var oError := SELF:Connection:LastException
+            if oError != null .and. oError != oLastError
+                SELF:_dbfError(ERDD.READ, XSharp.Gencode.EG_READ, "SqlRDD:GoTo", oError:Message, FALSE)
+                RETURN FALSE
+            endif
+            // does not exist, as above
+            SELF:_GoToPhantom()
+            SELF:_SetBOF(TRUE)
+            RETURN TRUE
+        endif
         SELF:_CheckEofBof()
         RETURN found
     end method
@@ -816,6 +909,13 @@ partial class SQLRDD inherit Workarea
     /// <inheritdoc />
     override property RecCount as dword
         get
+            // Counted on demand: a reposition (order change, Zap(), ...) only invalidates it.
+            if self:_tableMode == TableMode.Table .and. self:_builder != null
+                if !self:_tableReccountValid
+                    self:_GetTableRecCount()
+                endif
+                return self:_tableReccount
+            endif
             return Self:_serverReccount
         end get
     end property
@@ -823,16 +923,29 @@ partial class SQLRDD inherit Workarea
     /// <inheritdoc />
     override method Skip(nToSkip as long) as logic
         LOCAL result := FALSE AS LOGIC
-        LOCAL oldRow   := SELF:RowNumber as int
-        LOCAL oldRecNo := SELF:RecNo as dword
         SELF:_ForceOpen()
+        IF nToSkip != 0
+            SELF:_Found := FALSE
+        ENDIF
         SELF:_Top := FALSE
         SELF:_Bottom := FALSE
+        IF nToSkip != 0
+            // e.g. right after SetOrder(): the record's position in the order is still unknown
+            IF !SELF:_EnsurePositioned()
+                RETURN FALSE
+            ENDIF
+        ENDIF
         IF nToSkip == 0
             result := SELF:GoCold()
+        ELSEIF nToSkip < 0 .AND. SELF:_EoF .AND. SELF:_BoF
+            // EOF and BOF at once (e.g. after GoTo() to a record that does not exist): ADS lands on
+            // the first record and keeps BOF, as for any backward skip at BOF.
+            SELF:GoCold()
+            result := SELF:GoTop()
+            SELF:BoF := TRUE
         ELSEIF SELF:_outsideOrder
             // Positioned (via GoTo()) on a record outside the current order (OrderKeyNo 0).
-            // RowNumber/_currentPageNo do not correspond to any real position in the order's
+            // RowNumber/_bufferStart do not correspond to any real position in the order's
             // sequence, so a relative skip from here is meaningless. Matching DBF: a negative
             // skip always lands on the first record of the order; a positive skip lands on
             // record nToSkip, as if skipping forward from just before the top.
@@ -932,7 +1045,24 @@ partial class SQLRDD inherit Workarea
                 return false
             end try
         endif
-        RETURN SUPER:SetFilter(info)
+        SELF:_settingFilter := TRUE
+        local lOk as logic
+        try
+            lOk := SUPER:SetFilter(info)
+        finally
+            SELF:_settingFilter := FALSE
+        end try
+        // the server only sends the rows the filter can let through, see _FilterToSql()
+        SELF:_ApplyServerFilter(iif(lOk .and. SELF:_FilterInfo:Active, SELF:_FilterToSql(info:FilterText), null))
+        RETURN lOk
+    end method
+
+    OVERRIDE METHOD ClearFilter() AS LOGIC
+        var lOk := SUPER:ClearFilter()
+        if !SELF:_settingFilter
+            SELF:_ApplyServerFilter(null)
+        endif
+        RETURN lOk
     end method
 
     public override method Flush() as logic
@@ -947,8 +1077,24 @@ partial class SQLRDD inherit Workarea
             lockInfo:Result := false
             return false
         endif
+        // Read fresh after a lock: the record may be written next.
+        if self:_oTd != null
+            self:Connection:ResultCache?:Invalidate(self:_oTd:RealName)
+        endif
+        if !self:Connection:UseLocks
+            // Locking switched off for this connection (see SqlDbConnection.UseLocks). Nothing is
+            // locked, so the record is not read again either (see _RefreshLockedRow()).
+            lockInfo:Result := true
+            return true
+        endif
         var sb := StringBuilder{}
         var messageLocked := StringBuilder{}
+        var nLockRecNo := SELF:LockRecNo(REF lockInfo)
+        if SELF:_ownLocks:Contains(nLockRecNo)
+            // Already locked by this work area - no need to ask the lock table again.
+            lockInfo:Result := true
+            return true
+        endif
 
         try
             var otherLock := false
@@ -962,6 +1108,8 @@ partial class SQLRDD inherit Workarea
             endif
 
             if myLock
+                SELF:_ownLocks:Add(nLockRecNo)
+                SELF:_RefreshLockedRow(nLockRecNo)
                 lockInfo:Result := true
                 return true
             endif
@@ -983,7 +1131,7 @@ partial class SQLRDD inherit Workarea
             cmdInsertLock:AddParameter(self:Provider:ParameterPrefix+"p4", (int)super:Area)
             cmdInsertLock:AddParameter(self:Provider:ParameterPrefix+"p5", System.Threading.Thread.CurrentThread.ManagedThreadId)
             cmdInsertLock:AddParameter(self:Provider:ParameterPrefix+"p6", _oTd:RealName ?? String.Empty)
-            cmdInsertLock:AddParameter(self:Provider:ParameterPrefix+"p7", SELF:LockRecNo(lockInfo))
+            cmdInsertLock:AddParameter(self:Provider:ParameterPrefix+"p7", SELF:LockRecNo(REF lockInfo))
 
             if !cmdInsertLock:ExecuteNonQuery()
                 messageLocked:AppendLine("Could not create lock")
@@ -998,13 +1146,36 @@ partial class SQLRDD inherit Workarea
             return false
         end try
 
+        SELF:_ownLocks:Add(nLockRecNo)
+        SELF:_RefreshLockedRow(nLockRecNo)
         lockInfo:Result := true
         return true
     end method
 
     public override method UnLock(oRecId as object) as logic
+        // Like DBF/ADS: write pending changes first, while the locks are still held, then
+        // release them. The other way round, writing the pending rows had to lock them again,
+        // and that new lock stayed behind after the unlock.
+        if self:_updatedRecNos.Count > 0 .and. self:DataTable != null
+            SELF:_WritePendingRows()
+        endif
+
+        // In ADS this happens in here: ACE.AdsUnlockRecord(SELF:_Table, dwRecno)
+        if self:Deleted
+            self:_ExecuteDeleteStatement(CurrentRow)
+        endif
+
+        return SELF:_DeleteLockRows(oRecId)
+    end method
+
+    /// <summary>Remove this work area's lock rows for oRecId (all of them for 0/NULL).</summary>
+    private method _DeleteLockRows(oRecId as object) as logic
         if Connection?:Provider is null .or. !self:Connection:IsOpen
             return false
+        endif
+        if !self:Connection:UseLocks
+            // No lock rows are written when locking is switched off.
+            return true
         endif
 
         try
@@ -1038,18 +1209,11 @@ partial class SQLRDD inherit Workarea
         catch
             return false
         end try
-
-        // In ADS this happens in here: ACE.AdsUnlockRecord(SELF:_Table, dwRecno)
-        if self:Deleted
-            self:_ExecuteDeleteStatement(CurrentRow)
+        if oRecId != null .and. oRecId is int .and. ((int)oRecId) > 0
+            SELF:_ownLocks:Remove((int)oRecId)
+        else
+            SELF:_ownLocks:Clear()
         endif
-        if self:_updatedRecNos.Count > 0
-            foreach var nRecNo in self:_updatedRecNos
-                self:_UpdateRow(nRecNo)
-            next
-            self:_updatedRecNos:Clear()
-        endif
-
         return true
     end method
 
