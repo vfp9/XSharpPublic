@@ -1961,6 +1961,21 @@ namespace XSharp.Project
 
 #region IXSharpProject Interface
 
+
+        public IList<string> GeneratedSourceFileNames
+        {
+            get
+            {
+                var intermediatePath = this.IntermediateOutputPath;
+                if (Directory.Exists(intermediatePath))
+                {
+                    var files = Directory.GetFiles(intermediatePath, "*.prg", SearchOption.AllDirectories);
+                    return files;
+                }
+                return new string[0];
+            }
+        }
+
         public void AddIntellisenseError(XError error)
         {
             if (_errorListManager != null)
@@ -2637,7 +2652,9 @@ namespace XSharp.Project
                 if (vers.StartsWith("v4", StringComparison.OrdinalIgnoreCase) && Dialect != XDialect.Core)
                 {
                     vers = vers.ToLower().Substring(3);
-                    double.TryParse(vers, out double dvers);
+                    // "v4.7.2" -> "7.2": parse with the invariant culture. With the current culture (fr-FR, de-DE...)
+                    // "7.2" does not parse, dvers stays 0 and the project was silently retargeted to v4.7.
+                    double.TryParse(vers, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double dvers);
                     if (dvers < 7.0)
                     {
                         ok = false;
